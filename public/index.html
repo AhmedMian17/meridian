@@ -333,6 +333,10 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .allocrow .pc{font-weight:600; min-width:50px; text-align:right}
 .allocrow .vl{color:var(--ink-2); min-width:78px; text-align:right}
 .alloc[data-hover] .allocrow{opacity:.4}
+.allocrow.other{cursor:pointer}
+.allocrow.other:hover .lbl b{text-decoration:underline}
+.allocrow.sub{padding-left:16px; font-size:12.5px}
+.allocrow.sub .pc{font-weight:500}
 .alloc[data-hover] .allocrow.on{opacity:1}
 @media (max-width:640px){
   .alloc{grid-template-columns:1fr; justify-items:center; gap:14px}
@@ -3106,6 +3110,7 @@ function viewPortfolio() {
   add(out, allocationPanel());
 
   /* grouped table */
+  WT_TOTAL = allocationData("holding").total;
   var tbl = h("table", {}, [
     h("thead", {}, h("tr", {}, [
       h("th", { text: "Position" }), h("th", { text: "Units" }), h("th", { text: "Cost/unit" }),
@@ -3117,9 +3122,11 @@ function viewPortfolio() {
     var group = S.portfolio.positions.filter(function (p) { return p.kind === k.v; });
     if (!group.length) return;
     var sub = group.reduce(function (a, p) { var r = positionRoll(p); return a + (r.valueBase || 0); }, 0);
+    var wsub = weightOf(sub);
     body.appendChild(h("tr", { class: "group" }, [
       h("td", { colspan: "4", text: k.l }),
-      h("td", { text: money(sub) }), h("td", {}), h("td", {})
+      h("td", {}, [money(sub), wsub ? h("div", { class: "muted", style: "font-size:11.5px;font-weight:400", text: wsub }) : null]),
+      h("td", {}), h("td", {})
     ]));
     group.forEach(function (p) { positionRows(body, p); });
   });
@@ -3138,6 +3145,12 @@ function viewPortfolio() {
 function optionStale(p) {
   if (p.kind !== "option" || !p.source || p.source.type !== "yahoo" || !p.meta || !p.meta.tradedAt || !p.price || !p.price.at) return false;
   return new Date(p.price.at) - new Date(p.meta.tradedAt) > 30 * 3600000;
+}
+/** Share of the portfolio, on the same basis as the allocation chart (priced, long holdings). */
+var WT_TOTAL = 0;
+function weightOf(v) {
+  if (v === null || !(v > 0) || !(WT_TOTAL > 0)) return "";
+  return allocPct((v / WT_TOTAL) * 100);
 }
 function positionRows(body, p) {
   var r = positionRoll(p);
@@ -3183,7 +3196,10 @@ function positionRows(body, p) {
       title: p.price && p.price.at ? "as of " + new Date(p.price.at).toLocaleString() : "manual",
       onclick: function () { setPriceDialog(p); }
     })),
-    h("td", { text: r.valueBase === null ? "—" : money(r.valueBase) }),
+    h("td", {}, [
+      r.valueBase === null ? "—" : money(r.valueBase),
+      r.anyOpen && weightOf(r.valueBase) ? h("div", { class: "muted", style: "font-size:11.5px", text: weightOf(r.valueBase) + " of portfolio" }) : null
+    ]),
     h("td", { class: cls(r.gainBase) }, [
       r.gainBase === null ? "—" : signed(r.gainBase),
       r.pctGain === null ? null : h("div", { class: "muted", style: "font-size:11.5px", text: pct(r.pctGain) })
@@ -3701,7 +3717,7 @@ function allocationData(by) {
   if (list.length > ALLOC_MAX) {
     var rest = list.slice(ALLOC_MAX - 1);
     list = list.slice(0, ALLOC_MAX - 1).concat([{
-      key: "_other", label: "Other", other: true, sub: rest.length + " smaller " + (by === "holding" ? "holdings" : "groups"),
+      key: "_other", label: "Other", other: true, rest: rest, sub: rest.length + " smaller " + (by === "holding" ? "holdings" : "groups"),
       value: rest.reduce(function (a, g) { return a + g.value; }, 0),
       count: rest.reduce(function (a, g) { return a + g.count; }, 0)
     }]);
@@ -3709,6 +3725,10 @@ function allocationData(by) {
   list.forEach(function (g, i) {
     g.colour = g.other ? "var(--ink-3)" : ALLOC_COLOURS[i % ALLOC_COLOURS.length];
     g.pct = total ? (g.value / total) * 100 : 0;
+    (g.rest || []).forEach(function (x) {
+      x.pct = total ? (x.value / total) * 100 : 0;
+      if (by !== "holding") x.sub = plural(x.count, "holding");
+    });
     if (by !== "holding" && !g.other) {
       g.sub = plural(g.count, "holding") + (by === "currency" && g.key === S.settings.base ? " \u00b7 your base currency" : "");
     }
@@ -3758,14 +3778,37 @@ function allocationPanel() {
 
   var wrap = h("div", { class: "alloc" });
   add(wrap, svgEl(donutSvg(d), "allocchart"));
-  add(wrap, h("div", { class: "allocrows" }, d.list.map(function (g) {
-    return h("div", { class: "allocrow", "data-key": g.key }, [
+  var rows = [];
+  d.list.forEach(function (g) {
+    var openOther = g.other && UI.allocOtherOpen;
+    rows.push(h("div", {
+      class: "allocrow" + (g.other ? " other" : ""), "data-key": g.key,
+      role: g.other ? "button" : null, tabindex: g.other ? "0" : null,
+      "aria-expanded": g.other ? String(!!openOther) : null,
+      title: g.other ? (openOther ? "Hide the smaller holdings" : "Show the smaller holdings") : null,
+      onclick: g.other ? toggleOther : null,
+      onkeydown: g.other ? function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleOther(); } } : null
+    }, [
       h("i", { style: "background:" + g.colour }),
-      h("span", { class: "lbl" }, [h("b", { text: g.label }), g.sub ? h("small", { text: g.sub }) : null]),
+      h("span", { class: "lbl" }, [
+        h("b", { text: g.label + (g.other ? (openOther ? "  \u25B4" : "  \u25BE") : "") }),
+        g.sub ? h("small", { text: g.other ? (openOther ? "hide " : "show ") + g.sub : g.sub }) : null]),
       h("span", { class: "pc", text: allocPct(g.pct) }),
       h("span", { class: "vl", text: money(g.value) })
-    ]);
-  })));
+    ]));
+    if (openOther) g.rest.forEach(function (x) {
+      rows.push(h("div", { class: "allocrow sub", "data-key": "_other" }, [
+        h("i", { style: "background:var(--ink-3);opacity:.45" }),
+        h("span", { class: "lbl" }, [h("b", { text: x.label }), x.sub ? h("small", { text: x.sub }) : null]),
+        h("span", { class: "pc", text: allocPct(x.pct) }),
+        h("span", { class: "vl", text: money(x.value) })
+      ]));
+    });
+  });
+  function toggleOther() { UI.allocOtherOpen = !UI.allocOtherOpen; render(); }
+  add(wrap, h("div", { class: "allocrows" }, rows));
+  var otherSlice = wrap.querySelector('.slice[data-key="_other"]');
+  if (otherSlice) { otherSlice.style.cursor = "pointer"; otherSlice.addEventListener("click", toggleOther); }
 
   // hovering a slice or a legend row highlights its partner
   function on(key) {
