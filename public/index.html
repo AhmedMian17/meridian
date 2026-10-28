@@ -380,6 +380,12 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .chips{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px}
 .chip{border:1px solid var(--line-2); background:var(--surface); border-radius:14px; padding:3px 11px; font-size:12.5px; cursor:pointer; color:var(--ink-2)}
 .chip[aria-pressed="true"]{background:var(--ink); color:var(--paper); border-color:var(--ink)}
+.tagrow{display:inline-flex; flex-wrap:wrap; gap:4px; margin-top:4px}
+.ptag{border:0; background:var(--brass-wash); color:var(--brass); border-radius:9px; padding:1px 8px; font-size:11px; font-weight:500; cursor:pointer; font-family:inherit}
+.ptag:hover{text-decoration:underline}
+.tagbar .body{padding-top:12px; padding-bottom:12px}
+.tagsum{margin-top:10px; font-size:13px; color:var(--ink-2)}
+.tagpick{display:flex; flex-wrap:wrap; gap:5px; margin-top:6px}
 .linkbtn{background:none; border:0; color:var(--brass); cursor:pointer; padding:0; font-size:13px; text-decoration:underline; text-underline-offset:2px}
 .spin{display:inline-block; width:11px; height:11px; border:2px solid var(--line-2); border-top-color:var(--brass); border-radius:50%; animation:sp .7s linear infinite; vertical-align:-1px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -3130,10 +3136,11 @@ function viewPortfolio() {
     return out;
   }
 
+  add(out, tagFilterBar());
   add(out, allocationPanel());
 
   /* grouped table */
-  WT_TOTAL = allocationData("holding").total;
+  WT_TOTAL = allocationData("holding", { all: true }).total;
   var tbl = h("table", {}, [
     h("thead", {}, h("tr", {}, [
       h("th", { text: "Position" }), h("th", { text: "Units" }), h("th", { text: "Cost/unit" }),
@@ -3142,7 +3149,7 @@ function viewPortfolio() {
   ]);
   var body = h("tbody");
   KINDS.forEach(function (k) {
-    var group = S.portfolio.positions.filter(function (p) { return p.kind === k.v; });
+    var group = S.portfolio.positions.filter(function (p) { return p.kind === k.v && passesTagFilter(p); });
     if (!group.length) return;
     var sub = group.reduce(function (a, p) { var r = positionRoll(p); return a + (r.valueBase || 0); }, 0);
     var wsub = weightOf(sub);
@@ -3153,7 +3160,7 @@ function viewPortfolio() {
     ]));
     group.forEach(function (p) { positionRows(body, p); });
   });
-  if (cashList().length) {
+  if (cashList().length && !tagFilter()) {
     body.appendChild(h("tr", { class: "group" }, [
       h("td", { colspan: "4", text: "Cash & margin" }),
       h("td", { class: ct.net < 0 ? "down" : "" }, [money(ct.net),
@@ -3236,7 +3243,8 @@ function positionRows(body, p) {
         optionStale(p) ? h("span", { class: "tag brass", style: "margin-left:7px", text: "stale price",
           title: "No trade in this contract for over a day, so its last price may be well off the market" }) : null
       ]),
-      sub.length ? h("small", { text: sub.join(" · ") }) : null
+      sub.length ? h("small", { text: sub.join(" · ") }) : null,
+      tagChips(p)
     ])),
     h("td", { class: "nowrap", text: r.anyOpen ? num(r.openQty, 8) : "closed" }),
     h("td", { text: r.anyOpen && r.openQty ? price(Math.abs(r.cost) / (r.openQty * contractSize(p))) : "—" }),
@@ -3479,6 +3487,20 @@ function editPosition(p) {
             }))
       ]));
     }
+    var tagIn = inp({ value: tagsOf(draft).join(", "), placeholder: "AI, semis, core",
+      oninput: function (e) { draft.tagText = e.target.value; } });
+    if (draft.tagText !== undefined) tagIn.value = draft.tagText;
+    var have = cleanTags(tagIn.value).map(function (t) { return t.toLowerCase(); });
+    var spare = allTags().filter(function (t) { return have.indexOf(t.toLowerCase()) < 0; });
+    fields.push(field("Tags", h("div", {}, [
+      tagIn,
+      spare.length ? h("div", { class: "tagpick" }, spare.map(function (t) {
+        return h("button", { type: "button", class: "ptag", text: "+ " + t, onclick: function () {
+          var cur = cleanTags(tagIn.value); cur.push(t);
+          draft.tagText = cur.join(", "); build();
+        } });
+      })) : null
+    ]), "Separate with commas. Used to group the allocation chart and filter your holdings."));
     add(bodyWrap, fields);
   }
   build();
@@ -3521,6 +3543,8 @@ function editPosition(p) {
           setTimeout(function () { refreshPrices({ silent: true, force: true }); }, 200);
         }
         if (!draft.symbol && !draft.name) { toast("Give it a symbol or a name."); return false; }
+        if (draft.tagText !== undefined) { draft.tags = cleanTags(draft.tagText); delete draft.tagText; }
+        if (!draft.tags || !draft.tags.length) delete draft.tags;
         if (!draft.currency) draft.currency = S.settings.base;
         if (isNew) S.portfolio.positions.push(draft);
         else {
@@ -3741,13 +3765,97 @@ function autoPicker() {
 /* ============================================================
    Allocation — what the portfolio is split between
    ============================================================ */
-var ALLOC_BY = [{ v: "holding", l: "Holding" }, { v: "kind", l: "Type" }, { v: "currency", l: "Currency" }];
+var ALLOC_BY = [{ v: "holding", l: "Holding" }, { v: "tag", l: "Tag" }, { v: "kind", l: "Type" }, { v: "currency", l: "Currency" }];
+
+/* ---------- tags on positions ---------- */
+function tagsOf(p) { return Array.isArray(p.tags) ? p.tags.filter(Boolean) : []; }
+/** Every tag in use on an open position, A to Z. */
+function allTags() {
+  var seen = {};
+  S.portfolio.positions.forEach(function (p) {
+    if (!positionRoll(p).anyOpen) return;
+    tagsOf(p).forEach(function (t) { if (!seen[t.toLowerCase()]) seen[t.toLowerCase()] = t; });
+  });
+  return Object.keys(seen).sort().map(function (k) { return seen[k]; });
+}
+/** Tags typed as "AI, semis,  Core" → ["AI", "semis", "Core"], de-duplicated, reusing the spelling already in use. */
+function cleanTags(text) {
+  var existing = {}, out = [], seen = {};
+  allTags().forEach(function (t) { existing[t.toLowerCase()] = t; });
+  String(text || "").split(",").forEach(function (raw) {
+    var t = raw.trim().replace(/\s+/g, " ").slice(0, 30);
+    if (!t) return;
+    var k = t.toLowerCase();
+    if (seen[k]) return;
+    seen[k] = 1; out.push(existing[k] || t);
+  });
+  return out;
+}
+var UNTAGGED = "_untagged";
+function tagFilter() {
+  var f = UI.tagFilter;
+  if (!f) return null;
+  if (f !== UNTAGGED && !allTags().some(function (t) { return t === f; })) { UI.tagFilter = null; return null; }
+  return f;
+}
+function passesTagFilter(p) {
+  var f = tagFilter();
+  if (!f) return true;
+  var tags = tagsOf(p);
+  return f === UNTAGGED ? !tags.length : tags.some(function (t) { return t.toLowerCase() === f.toLowerCase(); });
+}
+function tagChips(p) {
+  var tags = tagsOf(p);
+  if (!tags.length) return null;
+  return h("span", { class: "tagrow" }, tags.map(function (t) {
+    return h("button", { class: "ptag", text: t, title: "Show only " + t,
+      onclick: function (e) { e.stopPropagation(); UI.tagFilter = UI.tagFilter === t ? null : t; render(); } });
+  }));
+}
+/** The filter bar above the chart, and what the filtered slice adds up to. */
+function tagFilterBar() {
+  var tags = allTags();
+  if (!tags.length) return null;
+  var f = tagFilter();
+  var anyUntagged = S.portfolio.positions.some(function (p) { return positionRoll(p).anyOpen && !tagsOf(p).length; });
+  var opts = [{ v: null, l: "All" }].concat(tags.map(function (t) { return { v: t, l: t }; }));
+  if (anyUntagged) opts.push({ v: UNTAGGED, l: "Untagged" });
+  var summary = null;
+  if (f) {
+    var v = 0, c = 0, g = 0, cnt = 0;
+    S.portfolio.positions.forEach(function (p) {
+      if (!passesTagFilter(p)) return;
+      var r = positionRoll(p); if (!r.anyOpen) return;
+      cnt++; v += r.valueBase || 0; c += r.costBase || 0; g += r.gainBase || 0;
+    });
+    var all = allocationData("holding", { all: true }).total;
+    summary = h("div", { class: "tagsum" }, [
+      h("b", { text: money(v) }),
+      " across " + plural(cnt, "holding"),
+      all > 0 ? " \u00b7 " + allocPct((v / all) * 100) + " of portfolio" : "",
+      " \u00b7 unrealised ", h("span", { class: cls(g), text: signed(g) + (c ? " (" + pct((g / Math.abs(c)) * 100) + ")" : "") })
+    ]);
+  }
+  return h("section", { class: "panel tagbar" }, h("div", { class: "body" }, [
+    h("div", { class: "mrow", style: "gap:10px;align-items:center;flex-wrap:wrap" }, [
+      h("span", { class: "muted", style: "font-size:12.5px", text: "Filter by tag" }),
+      h("div", { class: "chips", style: "margin:0" }, opts.map(function (o) {
+        return h("button", { class: "chip", text: o.l, "aria-pressed": (f || null) === o.v ? "true" : "false",
+          onclick: function () { UI.tagFilter = o.v; render(); } });
+      }))
+    ]),
+    summary
+  ]));
+}
 var ALLOC_COLOURS = ["var(--c1)", "var(--c2)", "var(--c3)", "var(--c4)", "var(--c5)", "var(--c6)", "var(--c7)", "var(--c8)"];
 var ALLOC_MAX = 8;   // beyond this, the smallest slices fold into "Other"
 
-function allocationData(by) {
-  var groups = {}, shorts = 0, unpriced = 0, noRate = 0, holdings = 0;
+function allocationData(by, opts) {
+  opts = opts || {};
+  var filtered = !opts.all && !!tagFilter();
+  var groups = {}, shorts = 0, unpriced = 0, noRate = 0, holdings = 0, split = 0;
   S.portfolio.positions.forEach(function (p) {
+    if (filtered && !passesTagFilter(p)) return;
     var r = positionRoll(p);
     if (!r.anyOpen) return;
     if (!r.rateKnown) { noRate++; return; }
@@ -3755,15 +3863,30 @@ function allocationData(by) {
     if (r.valueBase < 0) { shorts += r.valueBase; return; }     // a pie can't show a liability
     if (r.valueBase === 0) return;
     holdings++;
+    if (by === "tag") {
+      // a holding with several tags is shared equally between them, so the ring still adds up to 100%
+      var tags = tagsOf(p);
+      if (tags.length > 1) split++;
+      (tags.length ? tags : [null]).forEach(function (t) {
+        var k = t ? "tag:" + t.toLowerCase() : UNTAGGED;
+        var g = groups[k] || (groups[k] = { key: k, label: t || "Untagged", sub: "", value: 0, count: 0, untagged: !t });
+        g.value += r.valueBase / (tags.length || 1); g.count++;
+      });
+      return;
+    }
     var key, label, sub = "";
     if (by === "kind") { key = p.kind; label = kindLabel(p.kind); }
     else if (by === "currency") { key = p.currency; label = p.currency; }
-    else { key = p.id; label = p.symbol || p.name || "\u2014"; sub = p.kind === "option" ? "option" : (p.name && p.name !== label ? p.name : kindLabel(p.kind)); }
+    else {
+      key = p.id; label = p.symbol || p.name || "\u2014";
+      sub = p.kind === "option" ? "option" : (p.name && p.name !== label ? p.name : kindLabel(p.kind));
+      if (tagsOf(p).length) sub += " \u00b7 " + tagsOf(p).join(", ");
+    }
     var g = groups[key] || (groups[key] = { key: key, label: label, sub: sub, value: 0, count: 0 });
     g.value += r.valueBase; g.count++;
   });
   var margin = 0;
-  cashList().forEach(function (c) {
+  if (!filtered) cashList().forEach(function (c) {
     var v = toBase(n(c.amount), c.currency || S.settings.base);
     if (v === null) { noRate++; return; }
     if (v < 0) { margin += v; return; }
@@ -3771,6 +3894,7 @@ function allocationData(by) {
     var key, label, sub = "";
     if (by === "currency") { key = c.currency || S.settings.base; label = key; }
     else { key = "_cash"; label = "Cash"; }
+    if (by === "tag") { key = "_cash"; label = "Cash"; }
     var g = groups[key] || (groups[key] = { key: key, label: label, sub: sub, value: 0, count: 0, names: [] });
     g.value += v;
     if (key === "_cash") (g.names = g.names || []).push(c.name || "Broker cash");
@@ -3794,11 +3918,12 @@ function allocationData(by) {
       if (by !== "holding") x.sub = plural(x.count, "holding");
     });
     if (g.key === "_cash") { g.sub = (g.names || []).join(", "); return; }
+    if (by === "tag" && !g.other) { g.sub = plural(g.count, "holding"); if (g.untagged) g.colour = "var(--line-2)"; return; }
     if (by !== "holding" && !g.other) {
       g.sub = plural(g.count, "holding") + (by === "currency" && g.key === S.settings.base ? " \u00b7 your base currency" : "");
     }
   });
-  return { list: list, total: total, shorts: shorts, unpriced: unpriced, noRate: noRate, holdings: holdings, margin: margin };
+  return { list: list, total: total, shorts: shorts, unpriced: unpriced, noRate: noRate, holdings: holdings, margin: margin, split: split, filtered: filtered };
 }
 
 function moneyShort(v) {
@@ -3838,7 +3963,7 @@ function allocationPanel() {
   }));
   var header = h("header", {}, [h("h2", { text: "Allocation" }), chips]);
   if (!d.list.length) {
-    return h("section", { class: "panel" }, [header, emptyState("Nothing to chart yet", "Holdings show up here once they have a price.")]);
+    return h("section", { class: "panel" }, [header, emptyState("Nothing to chart yet", d.filtered ? "None of the holdings with this tag has a price yet." : "Holdings show up here once they have a price.")]);
   }
 
   var wrap = h("div", { class: "alloc" });
@@ -3871,6 +3996,19 @@ function allocationPanel() {
     });
   });
   function toggleOther() { UI.allocOtherOpen = !UI.allocOtherOpen; render(); }
+  if (by === "tag") {
+    rows.forEach(function (row) {
+      var key = row.getAttribute("data-key") || "";
+      if (key.indexOf("tag:") !== 0 && key !== UNTAGGED) return;
+      row.style.cursor = "pointer";
+      row.title = "Show only these holdings";
+      row.addEventListener("click", function () {
+        var g = d.list.filter(function (x) { return x.key === key; })[0];
+        UI.tagFilter = key === UNTAGGED ? UNTAGGED : (g ? g.label : null);
+        render();
+      });
+    });
+  }
   add(wrap, h("div", { class: "allocrows" }, rows));
   var otherSlice = wrap.querySelector('.slice[data-key="_other"]');
   if (otherSlice) { otherSlice.style.cursor = "pointer"; otherSlice.addEventListener("click", toggleOther); }
@@ -3890,6 +4028,8 @@ function allocationPanel() {
   });
 
   var notes = [];
+  if (by === "tag" && d.split) notes.push(plural(d.split, "holding") + " with more than one tag " + (d.split === 1 ? "is" : "are") + " shared equally between " + (d.split === 1 ? "its" : "their") + " tags.");
+  if (d.filtered) notes.push("Showing " + (tagFilter() === UNTAGGED ? "untagged holdings" : "holdings tagged " + tagFilter()) + " only; cash is left out while filtering.");
   if (d.margin < 0) {
     var hv = portfolioTotals().value, eq = hv + cashTotals().net;
     notes.push("Margin loan of " + money(Math.abs(d.margin)) + " isn't a slice: your holdings are worth " +
