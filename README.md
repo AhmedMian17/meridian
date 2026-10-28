@@ -7,6 +7,7 @@ One HTML file plus one Cloudflare Pages Function. No build step, no dependencies
 ```
 index.html               the whole app
 functions/api/proxy.js   price proxy, served at /api/proxy
+functions/api/store.js   sync database, served at /api/store
 ```
 
 ## Deploying
@@ -35,8 +36,19 @@ A page of JSON means it works. If Yahoo ever starts refusing, add a free Twelve 
 
 The proxy forwards only to a fixed list of finance hosts and refuses requests from other websites.
 
-## Your data
+## Your data and sync
 
-Everything is stored in your browser, on each device separately — nothing is uploaded. Settings → Export everything gives you a backup file; Import restores it.
+With sync set up, your board lives in a D1 database on your own Cloudflare account. Every device keeps a copy, works offline, and catches up when it reconnects; edits from two devices at once are merged.
+
+One-time setup in the Cloudflare dashboard:
+
+1. **Storage & Databases → D1 → Create database.** Any name, e.g. `meridian`.
+2. **Workers & Pages → your project → Settings → Bindings → Add → D1 database.** Variable name `DB`, pick the database.
+3. **Settings → Variables and secrets → Add.** Type *Secret*, name `SYNC_KEY`, value a long passphrase you'll remember.
+4. **Deployments → latest → Retry deployment** (or push anything) so both take effect.
+
+Open the site and it asks for the passphrase once per device. To lock every device out, change `SYNC_KEY` and redeploy; each device keeps its own copy and asks again.
+
+Without the database set up, everything stays in each browser separately. Settings → Export everything gives you a backup file either way.
 
 Inside claude.ai, the same file keeps your data in your Claude account instead, but can't fetch live prices.

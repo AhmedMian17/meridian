@@ -1209,6 +1209,165 @@ function setHabitCount(date, habitId, v) {
 /* ============================================================
    Start-up
    ============================================================ */
+/* ============================================================
+   Remote store: the deployed app's own database on Cloudflare.
+   It offers the sync engine the same four calls it uses inside
+   claude.ai — read, write, a short write lease, and change
+   notifications — so offline edits, merging and conflict
+   handling all work exactly the same way.
+   ============================================================ */
+var Remote = { key: null, listeners: {}, cursor: 0, seen: {}, timer: null, polling: false,
+               pollMs: window.__MERIDIAN_POLL_MS || 15000, asked: false };
+
+function remoteErr(code, message) { var e = new Error(message || code); e.code = code; return e; }
+async function remoteCall(method, query, body) {
+  var res, d = null;
+  try {
+    var headers = { "X-Meridian-Key": Remote.key || "" };
+    if (body) headers["Content-Type"] = "application/json";
+    res = await fetch("/api/store" + (query || ""), {
+      method: method, cache: "no-store", headers: headers, body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (e) { throw remoteErr("unavailable", "Can't reach your sync database"); }
+  try { d = await res.json(); } catch (e) {}
+  if (res.status === 401) { if (Store.kind === "remote") setTimeout(remoteRevoked, 0); throw remoteErr("revoked", "Wrong passphrase"); }
+  if (res.status === 400 || res.status === 413) throw remoteErr("invalid_argument", (d && d.error) || "Refused");
+  if (!res.ok) throw remoteErr("unavailable", (d && d.error) || ("HTTP " + res.status));
+  return d;
+}
+function remoteSnap(path, exists, doc) {
+  return { id: path.split("/").pop(), exists: !!exists,
+           data: function () { return exists ? clone(doc) : undefined; },
+           metadata: { fromCache: false, hasPendingWrites: false } };
+}
+var RemoteDB = {
+  doc: function (path) {
+    return {
+      id: path.split("/").pop(), path: path,
+      get: async function () {
+        var d = await remoteCall("GET", "?path=" + encodeURIComponent(path));
+        return remoteSnap(path, d.exists, d.doc);
+      },
+      set: async function (doc) { await remoteCall("POST", "", { op: "set", path: path, doc: doc }); },
+      acquire: async function (o) {
+        return await remoteCall("POST", "", { op: "acquire", path: path, holder: o.holder, ttlMs: o.ttlMs });
+      },
+      onSnapshot: function (next, error) {
+        var entry = { next: next, error: error };
+        (Remote.listeners[path] = Remote.listeners[path] || []).push(entry);
+        remoteStartPolling();
+        return function () { Remote.listeners[path] = (Remote.listeners[path] || []).filter(function (x) { return x !== entry; }); };
+      }
+    };
+  }
+};
+/** Changes from other devices arrive by asking every few seconds what's new since last time. */
+async function remotePoll() {
+  if (Remote.polling || Store.kind !== "remote" || !cloudOn() || document.hidden) return;
+  Remote.polling = true;
+  try {
+    for (var page = 0; page < 10; page++) {
+      var d = await remoteCall("GET", "?since=" + Remote.cursor);
+      var rows = d.docs || [], newest = Remote.cursor;
+      rows.forEach(function (row) {
+        newest = Math.max(newest, row.updated || 0);
+        var rev = row.doc && row.doc.rev;
+        if (rev && Remote.seen[row.path] === rev) return;
+        Remote.seen[row.path] = rev;
+        (Remote.listeners[row.path] || []).forEach(function (l) { try { l.next(remoteSnap(row.path, true, row.doc)); } catch (e) {} });
+      });
+      Remote.cursor = newest;
+      if (rows.length < 200) break;
+    }
+  } catch (e) {
+    /* a wrong passphrase is handled in remoteCall; anything else just waits for the next round */
+  } finally { Remote.polling = false; }
+}
+function remoteStartPolling() {
+  if (Remote.timer) return;
+  Remote.timer = setInterval(remotePoll, Remote.pollMs);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) remotePoll(); });
+  window.addEventListener("focus", remotePoll);
+}
+function remoteRevoked() {
+  if (Store.kind !== "remote") return;
+  lsDel("syncKey");
+  Remote.key = null;
+  switchOff();
+  Store.db = null; Store.uid = null; Store.kind = null;
+  render();
+  toast("The sync passphrase has changed. Reconnect from Settings.");
+}
+
+/** Is a sync database deployed with this copy, and is it set up? Inside claude.ai the request fails. */
+async function remotePing() {
+  try {
+    var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, 4000);
+    var r = await fetch("/api/store?ping=1", { cache: "no-store", signal: ctl.signal });
+    clearTimeout(t);
+    if (!r.ok && r.status !== 503) return null;
+    var d = await r.json();
+    return d && d.ok ? d : null;
+  } catch (e) { return null; }
+}
+async function remoteInit() {
+  var ping = await remotePing();
+  Store.remoteConfigured = !!(ping && ping.configured);
+  if (!Store.remoteConfigured) return;
+  Remote.cursor = Math.max(0, (ping.now || 0) - 5000);
+  var key = lsGet("syncKey");
+  // A device that's connected before goes straight back on, even offline: edits made now still sync later.
+  if (key) { Remote.key = key; Store.db = RemoteDB; Store.uid = "me"; Store.kind = "remote"; }
+}
+/** Check a passphrase, and if it's right, connect this device and reconcile with what's stored. */
+async function remoteConnect(key) {
+  Remote.key = key;
+  var d;
+  try { d = await remoteCall("GET", "?check=1"); }
+  catch (e) { Remote.key = null; return e.code === "revoked" ? "bad" : "offline"; }
+  lsSet("syncKey", key);
+  if (d && d.now) Remote.cursor = Math.max(0, d.now - 5000);
+  Store.db = RemoteDB; Store.uid = "me"; Store.kind = "remote"; Sync.disabled = false;
+  var names = BASE_SLICES.slice();
+  ["tx", "food", "hlog", "tsess", "txLegacy"].forEach(function (bag) {
+    Object.keys(S[bag] || {}).forEach(function (k) { names.push((bag === "txLegacy" ? "tx" : bag) + "-" + k); });
+  });
+  names = names.filter(function (n, i) { return names.indexOf(n) === i && isKnownSlice(n); });
+  names.forEach(function (n) { var st = sliceState(n); st.ready = false; st.loading = null; });
+  await Promise.race([Promise.all(names.map(ensureLoaded)), sleep(10000)]);
+  resumeDirty();
+  snapshotToday();
+  render(); syncChanged();
+  return "ok";
+}
+function connectSyncDialog() {
+  var keyIn = inp({ type: "password", placeholder: "Your sync passphrase", autocomplete: "current-password" });
+  var msg = h("p", { class: "muted", style: "font-size:12.5px;margin-top:6px" });
+  var busy = false;
+  function attempt() {
+    if (busy) return;
+    var k = keyIn.value;
+    if (!k) { msg.textContent = "Enter the passphrase you set in Cloudflare."; return; }
+    busy = true; msg.textContent = "Checking" + ELLIPSIS;
+    remoteConnect(k).then(function (r) {
+      busy = false;
+      if (r === "ok") { closeDialog(); toast("Sync is on for this device."); }
+      else if (r === "bad") { msg.textContent = "That's not the passphrase. Check SYNC_KEY in your Cloudflare project's settings."; keyIn.select(); }
+      else msg.textContent = "Couldn't reach the sync database. Check your connection and try again.";
+    });
+  }
+  keyIn.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); attempt(); } });
+  openDialog({
+    title: "Turn on sync",
+    body: h("div", {}, [
+      h("p", { style: "margin-bottom:12px", text: "Your board can be kept in your own Cloudflare database, so every device stays in step and nothing depends on this browser. This device asks once, then remembers." }),
+      field("Passphrase", keyIn),
+      msg
+    ]),
+    actions: [{ label: "Connect", primary: true, onClick: function () { attempt(); return false; } }]
+  });
+}
+
 async function initStore() {
   Sync.device = lsGet("device");
   if (!Sync.device) { Sync.device = uid(); lsSet("device", Sync.device); }
@@ -1218,10 +1377,11 @@ async function initStore() {
       if (u) { try { Store.uid = await u.id(); } catch (e) { Store.uid = null; } }
       if (Store.uid) {
         var db = await window.claude.use("db");
-        if (db) Store.db = db;
+        if (db) { Store.db = db; Store.kind = "claude"; }
       }
     }
-  } catch (e) { /* standalone copy: this browser only */ }
+  } catch (e) { /* standalone copy */ }
+  if (!Store.db) await remoteInit();
   Sync.started = true;
   syncChanged();
 }
@@ -2688,7 +2848,7 @@ function viewToday() {
 
   add(out, banners());
   add(out, backupReminder());
-  if (!Store.db && !hasRealData()) {
+  if (Store.kind !== "claude" && !hasRealData()) {
     add(out, h("div", { class: "banner" }, [
       h("div", {}, [h("b", { text: "Bringing your board across? " }),
         "In the claude.ai copy, go to Settings and choose Export everything, then import that file here."]),
@@ -4259,7 +4419,8 @@ function viewSettings() {
   var out = frag([]);
   add(out, h("div", { class: "viewhead" }, [
     h("div", {}, [h("h1", { text: "Settings" }), h("div", { class: "sub", text: cloudOn()
-      ? "Saved to your Claude account, with a copy on this device" : "Saved in this browser only" })])
+      ? (Store.kind === "remote" ? "Synced to your Cloudflare database, with a copy on this device" : "Saved to your Claude account, with a copy on this device")
+      : "Saved in this browser only" })])
   ]));
   add(out, banners());
 
@@ -4369,7 +4530,7 @@ function viewSettings() {
     ]),
     h("div", { class: "body" }, [
       h("p", { class: "muted", style: "font-size:13px;margin-bottom:12px", text: cloudOn()
-        ? "Everything is kept in your Claude account, private to you, with a copy in this browser so it opens instantly and works offline. Edits made offline wait here and go up when the connection is back; edits made on two devices at once are merged."
+        ? "Everything is kept in " + (Store.kind === "remote" ? "your own Cloudflare database" : "your Claude account") + ", private to you, with a copy in this browser so it opens instantly and works offline. Edits made offline wait here and go up when the connection is back; edits made on two devices at once are merged."
         : "This copy keeps everything in this browser only. Export regularly; it's the only backup." }),
       h("div", { class: "mrow", style: "font-size:13px;margin-bottom:14px" }, [
         h("span", { class: "muted", text: "Last export:" }),
@@ -4385,6 +4546,12 @@ function viewSettings() {
     ])
   ]));
 
+  if (Store.remoteConfigured && Store.kind !== "remote") {
+    add(out, h("div", { class: "banner" }, [
+      h("div", {}, [h("b", { text: "Sync is ready on this site. " }), "Connect this device to keep it in step with your others."]),
+      h("button", { class: "btn sm primary", text: "Turn on sync", onclick: connectSyncDialog })
+    ]));
+  }
   add(out, h("section", { class: "panel" }, [
     h("header", {}, [h("h2", { text: "Storage" }), h("span", { class: "note", text: "largest sections, each can hold 256 KB" })]),
     h("div", { class: "body" }, storageMeter())
@@ -6023,6 +6190,7 @@ async function boot() {
 
   startAuto();
   catchUp();
+  if (Store.remoteConfigured && Store.kind !== "remote" && !Remote.asked) { Remote.asked = true; setTimeout(connectSyncDialog, 400); }
   detectProxy().then(function (found) {
     if (!found) return;
     // Live prices by default here: refresh every 5 minutes unless you've chosen otherwise.
