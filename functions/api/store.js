@@ -18,7 +18,10 @@
  *   GET  ?since=<ms>             -> {now, docs:[{path, doc, updated}]}
  *   POST {op:"set", path, doc}   -> {ok, updated}
  *   POST {op:"acquire", path, holder, ttlMs} -> {acquired, expiresAt}
+ *   POST {op:"snapshot", date?}  -> the net worth row written (normally runs on a schedule)
  */
+
+import { takeSnapshot } from "../../src/snapshot.js";
 
 const MAX_DOC_BYTES = 262144;          // 256 KiB, the same cap the app enforces
 const PATH_RE = /^data\/users\/me\/[A-Za-z0-9_\-.:]{1,120}$/;
@@ -89,6 +92,11 @@ export async function onRequest({ request, env }) {
     if (request.method === "POST") {
       let body;
       try { body = await request.json(); } catch { return json({ error: "Body isn't JSON", code: "invalid_argument" }, 400); }
+      // Run the daily snapshot now, e.g. to check it works: {op:"snapshot", date?: "YYYY-MM-DD"}
+      if (body && body.op === "snapshot") {
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(body.date || "") ? body.date : undefined;
+        return json(await takeSnapshot(env, { date }));
+      }
       const path = body && body.path;
       if (!PATH_RE.test(String(path))) return json({ error: "Bad path", code: "invalid_argument" }, 400);
 

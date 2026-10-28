@@ -315,6 +315,48 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .wtarget{border:1px solid var(--line); border-radius:4px; padding:10px 12px; margin-bottom:14px; background:var(--surface-2)}
 .wtarget .bar{margin-top:8px}
 
+/* ---------- net worth charts ----------
+   Categorical slots in stacking order, validated for colour-blind and normal-vision separation
+   against this app's surfaces in both themes. Credit cards reuse the loans hue with a hatch. */
+.nwviz{--nw1:#2a78d6; --nw2:#eb6834; --nw3:#1baf7a; --nw4:#eda100; --nw5:#e87ba4; --nw6:#008300; --nw7:#6250d6; --nw8:#e34948}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])) .nwviz{--nw1:#3987e5; --nw2:#d95926; --nw3:#199e70; --nw4:#c98500; --nw5:#d55181; --nw6:#008300; --nw7:#9085e9; --nw8:#e66767}
+}
+:root[data-theme="dark"] .nwviz{--nw1:#3987e5; --nw2:#d95926; --nw3:#199e70; --nw4:#c98500; --nw5:#d55181; --nw6:#008300; --nw7:#9085e9; --nw8:#e66767}
+.tchart{position:relative; user-select:none; -webkit-user-select:none}
+.tchart svg{display:block; width:100%; overflow:visible}
+.tchart .ylab{position:absolute; left:-48px; width:42px; text-align:right; font-size:11px; color:var(--ink-3); transform:translateY(-50%); pointer-events:none; font-variant-numeric:tabular-nums}
+.tchart .pl{position:relative; margin-left:48px}
+.tchart .xlabs{display:flex; justify-content:space-between; font-size:11px; color:var(--ink-3); margin-top:5px; margin-left:48px}
+.tchart .hit{position:absolute; inset:0; cursor:crosshair; touch-action:pan-y}
+.tchart .xhair{position:absolute; top:0; width:1px; background:var(--ink-3); pointer-events:none; display:none}
+.tchart .dot{position:absolute; width:9px; height:9px; margin:-4.5px 0 0 -4.5px; border-radius:50%; border:2px solid var(--surface); pointer-events:none; display:none}
+.tchart .tip{position:absolute; top:4px; min-width:170px; max-width:240px; background:var(--surface); border:1px solid var(--line-2); border-radius:6px;
+  box-shadow:0 4px 16px rgba(0,0,0,.12); padding:8px 10px; font-size:12px; pointer-events:none; display:none; z-index:3}
+.tchart .tip b{display:block; margin-bottom:4px; font-weight:600; color:var(--ink)}
+.tchart .tip .r{display:flex; align-items:center; gap:7px; color:var(--ink-2); padding:1px 0}
+.tchart .tip .r span:nth-child(2){flex:1}
+.tchart .tip .r span:last-child{color:var(--ink); font-variant-numeric:tabular-nums}
+.tchart .tip .r.sum{border-top:1px solid var(--line); margin-top:4px; padding-top:4px; font-weight:600}
+.tchart .tip .r.sum span{color:var(--ink)}
+.sw{width:9px; height:9px; border-radius:2px; display:inline-block; flex:none}
+.sw.hatch{background-color:transparent !important; background-image:repeating-linear-gradient(45deg, var(--nw8) 0 1.5px, transparent 1.5px 3.5px) !important; box-shadow:inset 0 0 0 1px var(--nw8)}
+.nwlegend{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:12px; font-size:12px; color:var(--ink-2)}
+.nwlegend span{display:flex; align-items:center; gap:6px}
+.nwlegend b{font-weight:500; color:var(--ink)}
+.bdgrid{display:grid; grid-template-columns:1fr 1fr; gap:28px}
+@media (max-width:720px){ .bdgrid{grid-template-columns:1fr; gap:20px} }
+.bdhead{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px}
+.bdhead h3{font-size:13px; font-weight:600; margin:0}
+.bdhead span{font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:17px}
+.bdrow{display:grid; grid-template-columns:minmax(0,1fr) 46px 86px; gap:10px; align-items:center; padding:6px 0; font-size:13px}
+.bdrow .nm{display:flex; flex-direction:column; gap:5px; min-width:0}
+.bdrow .nm > span{display:flex; align-items:center; gap:7px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+.bdrow .bar{height:6px; background:var(--sunken); border-radius:3px; overflow:hidden}
+.bdrow .bar i{display:block; height:100%; border-radius:0 3px 3px 0}
+.bdrow .pc{text-align:right; color:var(--ink-2); font-size:12px}
+.bdrow .vl{text-align:right; font-variant-numeric:tabular-nums}
+
 /* ---------- allocation donut ---------- */
 .alloc{display:grid; grid-template-columns:220px minmax(0,1fr); gap:28px; align-items:center}
 .allocchart svg{width:220px; height:220px; display:block}
@@ -2468,10 +2510,17 @@ function portfolioOn(date, hist) {
   });
   return { value: value, exact: exact };
 }
-function putSnapshot(date, total, portfolio, est) {
+/** The breakdown kept with each snapshot: {invest, cash, super, …, loan, card, margin} in base currency. */
+function nwPartsMap(nw) {
+  var m = {};
+  nw.parts.forEach(function (p) { if (Math.abs(p.value) >= 0.005) m[p.key] = Math.round(p.value * 100) / 100; });
+  return m;
+}
+function putSnapshot(date, total, portfolio, est, extra) {
   var snaps = S.networth.snapshots, at = -1;
   for (var i = 0; i < snaps.length; i++) if (snaps[i].date === date) { at = i; break; }
   var row = { date: date, total: total, portfolio: portfolio };
+  if (extra) { row.assets = extra.assets; row.liabilities = extra.liabilities; row.parts = extra.parts; }
   if (est) row.est = true;
   if (at >= 0) snaps[at] = row; else snaps.push(row);
   snaps.sort(function (a, b) { return a.date.localeCompare(b.date); });
@@ -2498,14 +2547,21 @@ async function catchUpSnapshots(opts) {
 
   catchingUp = true;
   try {
-    var nw = netWorth(), accounts = nw.total - nw.portfolio;
+    var nw = netWorth(), accounts = nw.total - nw.portfolio, nowParts = nwPartsMap(nw);
+    var have = {};
+    S.networth.snapshots.forEach(function (s) { if (!s.est) have[s.date] = 1; });
+    missing = missing.filter(function (day) { return !have[day]; });   // the daily server snapshot may already have it
+    if (!missing.length) { render(); return; }
     var hist = {};
     if (opts.history !== false && cloudOnline()) {
       try { hist = await priceHistory(missing[0]); } catch (e) { hist = {}; }
     }
     missing.forEach(function (day) {
       var pv = portfolioOn(day, hist);
-      putSnapshot(day, accounts + pv.value, pv.value, !pv.exact);
+      var parts = Object.assign({}, nowParts); parts.invest = Math.round(pv.value * 100) / 100;
+      var a = 0, l = 0;
+      Object.keys(parts).forEach(function (k) { if (parts[k] >= 0) a += parts[k]; else l += parts[k]; });
+      putSnapshot(day, accounts + pv.value, pv.value, !pv.exact, { assets: a, liabilities: l, parts: parts });
     });
     save("networth");
     var filled = missing.length;
@@ -2520,7 +2576,7 @@ function estimatedSnapshots() {
 
 function snapshotToday(force) {
   var t = today(), nw = netWorth();
-  putSnapshot(t, nw.total, nw.portfolio, false);
+  putSnapshot(t, nw.total, nw.portfolio, false, { assets: nw.assets, liabilities: nw.liabilities, parts: nwPartsMap(nw) });
   S.settings.lastSnapshot = t;
   save("networth"); save("settings");
   if (force) { toast("Snapshot recorded for today."); render(); }
@@ -2839,6 +2895,215 @@ function lineChart(points, opts) {
     "<span>" + esc(money(min)) + " – " + esc(money(max)) + "</span>" +
     "<span>" + esc(fmtDate(last.x, true)) + "</span></div>";
   return o + labels;
+}
+
+/* ============================================================
+   Net worth charts
+   ============================================================ */
+var NW_CATS = [
+  { key: "invest", label: "Investments", colour: "var(--nw1)", side: 1 },
+  { key: "cash", label: "Cash & savings", colour: "var(--nw2)", side: 1 },
+  { key: "super", label: "Super", colour: "var(--nw3)", side: 1 },
+  { key: "property", label: "Property", colour: "var(--nw4)", side: 1 },
+  { key: "business", label: "Business", colour: "var(--nw5)", side: 1 },
+  { key: "vehicle", label: "Vehicles & other", colour: "var(--nw6)", side: 1 },
+  { key: "untracked", label: "Accounts (before breakdowns were kept)", colour: "var(--ink-3)", side: 1 },
+  { key: "loan", label: "Loans", colour: "var(--nw8)", side: -1 },
+  { key: "margin", label: "Margin loans", colour: "var(--nw7)", side: -1 },
+  { key: "card", label: "Credit cards", colour: "var(--nw8)", side: -1, hatch: true }
+];
+function nwCat(key) { for (var i = 0; i < NW_CATS.length; i++) if (NW_CATS[i].key === key) return NW_CATS[i]; return null; }
+function moneyAxis(v) {
+  var a = Math.abs(v), sign = v < 0 ? "-" : "";
+  if (a >= 1e6) return sign + "$" + (a / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "m";
+  if (a >= 1e3) return sign + "$" + (a / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "k";
+  return sign + "$" + Math.round(a);
+}
+/** Breakdown of a snapshot; older rows without one show investments plus everything else as one band. */
+function snapParts(s) {
+  if (s.parts) return s.parts;
+  var m = { invest: n(s.portfolio) }, rest = n(s.total) - n(s.portfolio);
+  if (Math.abs(rest) >= 0.005) { if (rest >= 0) m.untracked = rest; else m.loan = rest; }
+  return m;
+}
+function niceStep(span) {
+  var raw = span / 4, mag = Math.pow(10, Math.floor(Math.log10(raw || 1))), f = raw / mag;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+}
+/**
+ * Time chart with a crosshair and tooltip. rows: sorted snapshots.
+ * opts.mode "net": one line of net worth. opts.mode "stack": assets stacked above zero,
+ * liabilities below, net worth drawn over them.
+ */
+function timeChart(rows, opts) {
+  var mode = opts.mode, H = opts.h || 220, W = 1000, padT = 8, padB = 8;
+  var wrap = h("div", { class: "tchart nwviz" });
+  if (rows.length < 2) { wrap.appendChild(h("div", { class: "empty", style: "padding:26px", text: "Not enough history yet. It fills in day by day." })); return wrap; }
+  var cats = [];
+  if (mode === "stack") {
+    var used = {};
+    rows.forEach(function (r) { var p = snapParts(r); Object.keys(p).forEach(function (k) { if (p[k]) used[k] = 1; }); });
+    cats = NW_CATS.filter(function (c) { return used[c.key]; });
+  }
+  var t0 = parseISO(rows[0].date).getTime(), t1 = parseISO(rows[rows.length - 1].date).getTime();
+  var X = function (r) { return ((parseISO(r.date).getTime() - t0) / Math.max(1, t1 - t0)) * W; };
+  // value range
+  var lo = Infinity, hi = -Infinity;
+  var stacks = rows.map(function (r) {
+    var p = snapParts(r), up = 0, dn = 0, seg = {};
+    cats.forEach(function (c) {
+      var v = n(p[c.key]);
+      if (c.side > 0 && v > 0) { seg[c.key] = [up, up + v]; up += v; }
+      else if (c.side < 0 && v < 0) { seg[c.key] = [dn, dn + v]; dn += v; }
+    });
+    lo = Math.min(lo, n(r.total), dn); hi = Math.max(hi, n(r.total), up);
+    return { seg: seg, up: up, dn: dn };
+  });
+  if (mode === "stack") { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+  if (lo === hi) { lo -= 1; hi += 1; }
+  var step = niceStep(hi - lo);
+  var yMin = Math.floor((mode === "net" ? lo - (hi - lo) * 0.08 : lo) / step) * step;
+  var yMax = Math.ceil((mode === "net" ? hi + (hi - lo) * 0.08 : hi) / step) * step;
+  if (mode === "net" && lo >= 0 && yMin < 0) yMin = 0;
+  var Y = function (v) { return padT + (1 - (v - yMin) / (yMax - yMin)) * (H - padT - padB); };
+
+  var o = '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="none" style="height:' + H + 'px" role="img" aria-label="' +
+    (mode === "net" ? "Net worth over time" : "Assets and liabilities over time") + '">';
+  o += '<defs><pattern id="nwHatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">' +
+    '<rect width="6" height="6" fill="var(--nw8)" opacity=".25"/><rect width="2.4" height="6" fill="var(--nw8)"/></pattern></defs>';
+  var ticks = [];
+  for (var v = yMin; v <= yMax + step / 2; v += step) ticks.push(v);
+  ticks.forEach(function (tv) {
+    o += '<line x1="0" x2="' + W + '" y1="' + Y(tv).toFixed(1) + '" y2="' + Y(tv).toFixed(1) + '" stroke="var(--line)" stroke-width="1" vector-effect="non-scaling-stroke"' +
+      (Math.abs(tv) < step / 1e6 && mode === "stack" ? ' style="stroke:var(--ink-3)"' : "") + "/>";
+  });
+  if (mode === "stack") {
+    cats.forEach(function (c) {
+      var top = "", bot = [];
+      rows.forEach(function (r, i) {
+        var sg = stacks[i].seg[c.key] || (c.side > 0 ? [stacks[i].up, stacks[i].up] : [stacks[i].dn, stacks[i].dn]);
+        // a category missing that day collapses to the edge of the stack, so its band closes cleanly
+        if (!stacks[i].seg[c.key]) {
+          var prev = 0;
+          for (var j = 0; j < cats.length && cats[j] !== c; j++) { var s2 = stacks[i].seg[cats[j].key]; if (s2 && cats[j].side === c.side) prev = s2[1]; }
+          sg = [prev, prev];
+        }
+        top += (i ? "L" : "M") + X(r).toFixed(1) + " " + Y(sg[1]).toFixed(1) + " ";
+        bot.unshift(X(r).toFixed(1) + " " + Y(sg[0]).toFixed(1));
+      });
+      o += '<path d="' + top + "L" + bot.join(" L") + ' Z" fill="' + (c.hatch ? "url(#nwHatch)" : c.colour) + '" fill-opacity="' + (c.hatch ? 1 : 0.85) +
+        '" stroke="var(--surface)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';
+    });
+  }
+  var line = "";
+  rows.forEach(function (r, i) { line += (i ? "L" : "M") + X(r).toFixed(1) + " " + Y(n(r.total)).toFixed(1) + " "; });
+  if (mode === "net") {
+    o += '<path d="' + line + "L" + W + " " + Y(Math.max(yMin, Math.min(0, yMax))).toFixed(1) + " L0 " + Y(Math.max(yMin, Math.min(0, yMax))).toFixed(1) +
+      ' Z" fill="var(--nw1)" opacity=".10"/>';
+  }
+  o += '<path d="' + line + '" fill="none" stroke="' + (mode === "net" ? "var(--nw1)" : "var(--ink)") + '" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+  o += "</svg>";
+  var plot = h("div", { class: "pl" });
+  plot.innerHTML = o;
+  ticks.forEach(function (tv, i) {
+    if (ticks.length > 5 && i % 2) return;
+    plot.appendChild(h("span", { class: "ylab", style: "top:" + Y(tv).toFixed(1) + "px", text: moneyAxis(tv) }));
+  });
+  var xhair = h("div", { class: "xhair", style: "height:" + H + "px" });
+  var dot = h("div", { class: "dot", style: "background:" + (mode === "net" ? "var(--nw1)" : "var(--ink)") });
+  var tip = h("div", { class: "tip" });
+  var hit = h("div", { class: "hit" });
+  plot.appendChild(xhair); plot.appendChild(dot); plot.appendChild(tip); plot.appendChild(hit);
+  wrap.appendChild(plot);
+  var mid = rows[Math.floor((rows.length - 1) / 2)];
+  wrap.appendChild(h("div", { class: "xlabs" }, [
+    h("span", { text: fmtDate(rows[0].date, true) }),
+    rows.length > 4 ? h("span", { text: fmtDate(mid.date, true) }) : null,
+    h("span", { text: fmtDate(rows[rows.length - 1].date, true) })
+  ]));
+
+  function show(clientX) {
+    var box = hit.getBoundingClientRect();
+    var fx = Math.max(0, Math.min(1, (clientX - box.left) / box.width)) * W;
+    var best = 0;
+    rows.forEach(function (r, i) { if (Math.abs(X(r) - fx) < Math.abs(X(rows[best]) - fx)) best = i; });
+    var r = rows[best], px = (X(r) / W) * box.width;
+    xhair.style.left = px + "px"; xhair.style.display = "block";
+    dot.style.left = px + "px"; dot.style.top = Y(n(r.total)) + "px"; dot.style.display = "block";
+    tip.innerHTML = "";
+    tip.appendChild(h("b", { text: fmtDate(r.date, true) + (r.est ? " \u00b7 estimate" : "") }));
+    if (mode === "stack") {
+      var p = snapParts(r);
+      cats.forEach(function (c) {
+        if (!n(p[c.key])) return;
+        tip.appendChild(h("div", { class: "r" }, [
+          h("span", { class: "sw" + (c.hatch ? " hatch" : ""), style: "background:" + c.colour }),
+          h("span", { text: c.label }), h("span", { text: money(n(p[c.key])) })]));
+      });
+      var a = 0, l = 0;
+      Object.keys(p).forEach(function (k) { if (p[k] >= 0) a += n(p[k]); else l += n(p[k]); });
+      tip.appendChild(h("div", { class: "r sum" }, [h("span"), h("span", { text: "Assets" }), h("span", { text: money(a) })]));
+      tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw" }), h("span", { text: "Liabilities" }), h("span", { text: money(l) })]));
+      tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw" }), h("span", { text: "Net worth" }), h("span", { text: money(n(r.total)) })]));
+    } else {
+      var d0 = n(r.total) - n(rows[0].total);
+      tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw", style: "background:var(--nw1)" }), h("span", { text: "Net worth" }), h("span", { text: money(n(r.total)) })]));
+      tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw" }), h("span", { text: "Since " + fmtDate(rows[0].date, true) }),
+        h("span", { class: cls(d0), text: signed(d0) })]));
+    }
+    var tw = tip.offsetWidth || 180;
+    tip.style.left = (px + 14 + tw > box.width ? Math.max(0, px - 14 - tw) : px + 14) + "px";
+    tip.style.display = "block";
+  }
+  function hide() { xhair.style.display = dot.style.display = tip.style.display = "none"; }
+  hit.addEventListener("mousemove", function (e) { show(e.clientX); });
+  hit.addEventListener("mouseleave", hide);
+  hit.addEventListener("touchstart", function (e) { if (e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
+  hit.addEventListener("touchmove", function (e) { if (e.touches[0]) show(e.touches[0].clientX); }, { passive: true });
+  hit.addEventListener("touchend", function () { setTimeout(hide, 1800); });
+
+  if (mode === "stack") {
+    var lastP = snapParts(rows[rows.length - 1]);
+    var leg = h("div", { class: "nwlegend" }, cats.map(function (c) {
+      return h("span", {}, [h("i", { class: "sw" + (c.hatch ? " hatch" : ""), style: "background:" + c.colour }), c.label,
+        lastP[c.key] ? h("b", { text: money(n(lastP[c.key])) }) : null]);
+    }));
+    leg.appendChild(h("span", {}, [h("i", { class: "sw", style: "height:2px;background:var(--ink)" }), "Net worth"]));
+    wrap.appendChild(leg);
+  }
+  return wrap;
+}
+/** What you own and owe today, each side as a share of itself. */
+function breakdownPanel(nw) {
+  var m = nwPartsMap(nw);
+  function side(sign, title) {
+    var list = NW_CATS.filter(function (c) { return c.side === sign && m[c.key] && (sign > 0 ? m[c.key] > 0 : m[c.key] < 0); })
+      .map(function (c) { return { c: c, v: Math.abs(m[c.key]) }; })
+      .sort(function (a, b) { return b.v - a.v; });
+    var total = list.reduce(function (a, x) { return a + x.v; }, 0);
+    var col = h("div", { class: "nwviz" }, [h("div", { class: "bdhead" }, [h("h3", { text: title }),
+      h("span", { class: sign < 0 && total ? "down" : "", text: money(sign * total) })])]);
+    if (!list.length) { col.appendChild(h("p", { class: "muted", style: "font-size:12.5px", text: sign > 0 ? "No assets yet." : "Nothing owed." })); return col; }
+    list.forEach(function (x) {
+      var share = total ? (x.v / total) * 100 : 0;
+      col.appendChild(h("div", { class: "bdrow" }, [
+        h("div", { class: "nm" }, [
+          h("span", {}, [h("i", { class: "sw" + (x.c.hatch ? " hatch" : ""), style: "background:" + x.c.colour }), x.c.label]),
+          h("div", { class: "bar" }, h("i", { class: x.c.hatch ? "sw hatch" : "", style: "width:" + share.toFixed(1) + "%;background:" + x.c.colour + (x.c.hatch ? ";height:100%;border-radius:0" : "") }))
+        ]),
+        h("span", { class: "pc", text: allocPct(share) }),
+        h("span", { class: "vl", text: money(sign * x.v) })
+      ]));
+    });
+    return col;
+  }
+  var assets = side(1, "Assets"), owes = side(-1, "Liabilities");
+  var ratio = nw.assets > 0 && nw.liabilities < 0 ? h("p", { class: "muted", style: "font-size:12px;margin-top:14px",
+    text: "You owe " + allocPct((Math.abs(nw.liabilities) / nw.assets) * 100) + " of what you own." }) : null;
+  return h("section", { class: "panel" }, [
+    h("header", {}, [h("h2", { text: "Breakdown" }), h("span", { class: "note", text: "today, in " + S.settings.base })]),
+    h("div", { class: "body" }, [h("div", { class: "bdgrid" }, [assets, owes]), ratio])
+  ]);
 }
 
 /** Horizontal stacked composition bar from [{label,value,colour}] */
@@ -4080,28 +4345,33 @@ function viewNetworth() {
     ])
   ]));
 
-  /* chart */
+  /* charts */
   var cut = addDays(today(), -UI.netRange);
-  var pts = S.networth.snapshots.filter(function (s) { return s.date >= cut; })
-    .map(function (s) { return { x: s.date, y: s.total }; });
+  var rows = S.networth.snapshots.filter(function (s) { return s.date >= cut; }).slice()
+    .sort(function (a, b) { return a.date.localeCompare(b.date); });
+  var rangeChips = function () {
+    return h("div", { class: "chips", style: "margin:0" }, ranges.map(function (r) {
+      return h("button", {
+        class: "chip", text: r.l, "aria-pressed": UI.netRange === r.v ? "true" : "false",
+        onclick: function () { UI.netRange = r.v; render(); }
+      });
+    }));
+  };
+  var est = rows.filter(function (s) { return s.est; }).length;
   add(out, h("section", { class: "panel" }, [
-    h("header", {}, [
-      h("h2", { text: "Trajectory" }),
-      h("div", { class: "chips", style: "margin:0" }, ranges.map(function (r) {
-        return h("button", {
-          class: "chip", text: r.l, "aria-pressed": UI.netRange === r.v ? "true" : "false",
-          onclick: function () { UI.netRange = r.v; render(); }
-        });
-      }))
-    ]),
+    h("header", {}, [h("h2", { text: "Net worth over time" }), rangeChips()]),
     h("div", { class: "body" }, [
-      svgEl(lineChart(pts, { h: 190 })),
-      estimatedSnapshots() ? h("p", { class: "muted", style: "font-size:12px;margin-top:6px", text:
-        plural(estimatedSnapshots(), "day") + " you were away " + (estimatedSnapshots() === 1 ? "was" : "were") +
-        " filled in from your holdings at the time. Days priced from the last value known, rather than that day's close, are estimates." }) : null,
-      h("div", { style: "margin-top:16px" }, svgEl(stackBar(nw.parts)))
+      timeChart(rows, { mode: "net", h: 210 }),
+      est ? h("p", { class: "muted", style: "font-size:12px;margin-top:8px", text:
+        plural(est, "day") + " in this range " + (est === 1 ? "is an estimate" : "are estimates") +
+        ": some prices weren't available for that day, so the last known price was used." }) : null
     ])
   ]));
+  add(out, h("section", { class: "panel" }, [
+    h("header", {}, [h("h2", { text: "Assets and liabilities" }), h("span", { class: "note", text: "owed amounts below the line" })]),
+    h("div", { class: "body" }, timeChart(rows, { mode: "stack", h: 240 }))
+  ]));
+  add(out, breakdownPanel(nw));
 
   /* accounts */
   if (!S.networth.accounts.length && !cashList().length) {

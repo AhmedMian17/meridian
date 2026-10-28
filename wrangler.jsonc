@@ -6,5 +6,9 @@
   "assets": { "directory": "./public", "binding": "ASSETS" },
   // Wrangler creates this database on the first deploy and keeps it linked after that.
   "d1_databases": [{ "binding": "DB" }],
+  // Daily net worth snapshot: 21:30 UTC is after the US close all year
+  // (7:30am Sydney in winter, 8:30am in summer). It records the previous Sydney day.
+  "triggers": { "crons": ["30 21 * * *"] },
+  "vars": { "SNAPSHOT_TZ": "Australia/Sydney" },
   "observability": { "enabled": true }
 }
