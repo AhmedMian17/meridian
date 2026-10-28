@@ -456,7 +456,7 @@ var S = {
     shards: {},
     cgtDiscount: true
   },
-  portfolio: { positions: [], lots: [], disposals: [] },
+  portfolio: { positions: [], lots: [], disposals: [], cash: [] },
   networth: { accounts: [], snapshots: [] },
   budget: { categories: [] },
   tx: {},            // 'YYYY-MM' -> { items: [transactions] }
@@ -1848,6 +1848,7 @@ function missingRates() {
   var miss = {};
   S.portfolio.positions.forEach(function (p) { if (fxRate(p.currency) === null) miss[p.currency] = 1; });
   S.networth.accounts.forEach(function (a) { if (fxRate(a.currency) === null) miss[a.currency] = 1; });
+  cashList().forEach(function (c) { if (c.currency && fxRate(c.currency) === null) miss[c.currency] = 1; });
   return Object.keys(miss);
 }
 
@@ -1911,6 +1912,18 @@ function positionRoll(p) {
   };
 }
 
+/* ---------- cash held at brokers; negative = borrowing on margin ---------- */
+function cashList() { return S.portfolio.cash || (S.portfolio.cash = []); }
+function cashTotals() {
+  var t = { cash: 0, margin: 0, net: 0, noRate: 0 };
+  cashList().forEach(function (c) {
+    var v = toBase(n(c.amount), c.currency || S.settings.base);
+    if (v === null) { t.noRate++; return; }
+    if (v >= 0) t.cash += v; else t.margin += v;
+  });
+  t.net = t.cash + t.margin;
+  return t;
+}
 function portfolioTotals() {
   var t = { value: 0, cost: 0, gain: 0, realised: 0, unpriced: 0, noRate: 0, byKind: {} };
   S.portfolio.positions.forEach(function (p) {
@@ -2282,6 +2295,7 @@ function fxNeeded() {
   var need = {};
   S.portfolio.positions.forEach(function (p) { if (p.currency !== S.settings.base) need[p.currency] = 1; });
   S.networth.accounts.forEach(function (a) { if (a.currency && a.currency !== S.settings.base) need[a.currency] = 1; });
+  cashList().forEach(function (c) { if (c.currency && c.currency !== S.settings.base) need[c.currency] = 1; });
   Object.keys(S.settings.fx).forEach(function (c) { if (c !== S.settings.base) need[c] = 1; });
   return Object.keys(need).filter(function (c) { return /^[A-Z]{3}$/.test(c); });
 }
@@ -2371,11 +2385,16 @@ function netWorth() {
     byType[t.id] = (byType[t.id] || 0) + v;
     if (v >= 0) assets += v; else liabilities += v;
   });
+  var ct = cashTotals();
+  if (cashList().some(function (c) { return n(c.amount) > 0; })) { byType.cash = (byType.cash || 0) + ct.cash; assets += ct.cash; }
+  liabilities += ct.margin;
   ACCOUNT_TYPES.forEach(function (t) {
     if (byType[t.id] === undefined) return;
     parts.push({ key: t.id, label: t.label, value: byType[t.id], colour: t.colour });
   });
-  return { total: assets + liabilities, assets: assets, liabilities: liabilities, parts: parts, portfolio: pt.value };
+  if (ct.margin < 0) parts.push({ key: "margin", label: "Margin loans", value: ct.margin, colour: "var(--down)" });
+  return { total: assets + liabilities, assets: assets, liabilities: liabilities, parts: parts, portfolio: pt.value,
+           brokerCash: ct.cash, margin: ct.margin };
 }
 /** Units held on a given date, from the lots bought by then minus what had been sold. */
 function openQtyOn(p, date) {
@@ -3062,7 +3081,7 @@ function fyLabel(y) { return "FY" + String(y).slice(2); }
 
 function viewPortfolio() {
   var out = frag([]);
-  var t = portfolioTotals();
+  var t = portfolioTotals(), ct = cashTotals();
 
   add(out, h("div", { class: "viewhead" }, [
     h("div", {}, [
@@ -3091,6 +3110,10 @@ function viewPortfolio() {
   add(out, h("section", { class: "panel" }, [
     h("div", { class: "stats" }, [
       h("div", {}, [h("div", { class: "k", text: "Market value" }), h("div", { class: "v", text: money(t.value) })]),
+      cashList().length ? h("div", {}, [h("div", { class: "k", text: ct.margin < 0 && ct.cash > 0 ? "Cash, net of margin" : ct.net < 0 ? "Margin loan" : "Cash" }),
+        h("div", { class: "v " + (ct.net < 0 ? "down" : ""), text: money(ct.net) })]) : null,
+      cashList().length ? h("div", {}, [h("div", { class: "k", text: "Account value" }), h("div", { class: "v", text: money(t.value + ct.net) }),
+        h("div", { class: "k", text: ct.net < 0 && t.value + ct.net > 0 ? (t.value / (t.value + ct.net)).toFixed(2) + "\u00d7 leverage" : "" })]) : null,
       h("div", {}, [h("div", { class: "k", text: "Cost base" }), h("div", { class: "v", text: money(t.cost) })]),
       h("div", {}, [h("div", { class: "k", text: "Unrealised" }), h("div", { class: "v " + cls(t.gain), text: signed(t.gain) }),
         h("div", { class: "k", text: t.pct === null ? "" : pct(t.pct) })]),
@@ -3130,10 +3153,37 @@ function viewPortfolio() {
     ]));
     group.forEach(function (p) { positionRows(body, p); });
   });
+  if (cashList().length) {
+    body.appendChild(h("tr", { class: "group" }, [
+      h("td", { colspan: "4", text: "Cash & margin" }),
+      h("td", { class: ct.net < 0 ? "down" : "" }, [money(ct.net),
+        weightOf(ct.cash) && ct.net >= 0 ? h("div", { class: "muted", style: "font-size:11.5px;font-weight:400", text: weightOf(ct.cash) }) : null]),
+      h("td", {}), h("td", {})
+    ]));
+    cashList().forEach(function (c) {
+      var v = toBase(n(c.amount), c.currency || S.settings.base);
+      body.appendChild(h("tr", {}, [
+        h("td", {}, h("div", { class: "name" }, [
+          h("b", {}, [c.name || "Broker cash", v !== null && v < 0 ? h("span", { class: "tag", style: "margin-left:7px;color:var(--down)", text: "margin" }) : null]),
+          h("small", { text: [c.currency !== S.settings.base ? money2(n(c.amount), c.currency) : "", c.note || ""].filter(Boolean).join(" \u00b7 ") || (v < 0 ? "borrowed" : "cash") })
+        ])),
+        h("td", {}), h("td", {}), h("td", {}),
+        h("td", { class: v !== null && v < 0 ? "down" : "" }, [
+          v === null ? "no rate" : money(v),
+          v > 0 && weightOf(v) ? h("div", { class: "muted", style: "font-size:11.5px", text: weightOf(v) + " of portfolio" }) : null
+        ]),
+        h("td", {}),
+        h("td", { class: "nowrap" }, h("button", { class: "btn sm quiet", text: "Edit", onclick: function () { editCash(c); } }))
+      ]));
+    });
+  }
   tbl.appendChild(body);
   add(out, h("section", { class: "panel" }, [
     h("header", {}, [h("h2", { text: "Holdings" }),
-      h("span", { class: "note", text: "Select a row to see its lots" })]),
+      h("div", { class: "mrow", style: "gap:10px" }, [
+        h("span", { class: "note", text: "Select a row to see its lots" }),
+        h("button", { class: "btn sm", text: cashList().length ? "Add cash" : "Add cash or margin", onclick: function () { editCash(null); } })
+      ])]),
     h("div", { class: "body flush" }, h("div", { class: "tablewrap" }, tbl))
   ]));
 
@@ -3712,6 +3762,20 @@ function allocationData(by) {
     var g = groups[key] || (groups[key] = { key: key, label: label, sub: sub, value: 0, count: 0 });
     g.value += r.valueBase; g.count++;
   });
+  var margin = 0;
+  cashList().forEach(function (c) {
+    var v = toBase(n(c.amount), c.currency || S.settings.base);
+    if (v === null) { noRate++; return; }
+    if (v < 0) { margin += v; return; }
+    if (v === 0) return;
+    var key, label, sub = "";
+    if (by === "currency") { key = c.currency || S.settings.base; label = key; }
+    else { key = "_cash"; label = "Cash"; }
+    var g = groups[key] || (groups[key] = { key: key, label: label, sub: sub, value: 0, count: 0, names: [] });
+    g.value += v;
+    if (key === "_cash") (g.names = g.names || []).push(c.name || "Broker cash");
+    else g.count++;
+  });
   var list = Object.keys(groups).map(function (k) { return groups[k]; }).sort(function (a, b) { return b.value - a.value; });
   var total = list.reduce(function (a, g) { return a + g.value; }, 0);
   if (list.length > ALLOC_MAX) {
@@ -3729,11 +3793,12 @@ function allocationData(by) {
       x.pct = total ? (x.value / total) * 100 : 0;
       if (by !== "holding") x.sub = plural(x.count, "holding");
     });
+    if (g.key === "_cash") { g.sub = (g.names || []).join(", "); return; }
     if (by !== "holding" && !g.other) {
       g.sub = plural(g.count, "holding") + (by === "currency" && g.key === S.settings.base ? " \u00b7 your base currency" : "");
     }
   });
-  return { list: list, total: total, shorts: shorts, unpriced: unpriced, noRate: noRate, holdings: holdings };
+  return { list: list, total: total, shorts: shorts, unpriced: unpriced, noRate: noRate, holdings: holdings, margin: margin };
 }
 
 function moneyShort(v) {
@@ -3825,6 +3890,11 @@ function allocationPanel() {
   });
 
   var notes = [];
+  if (d.margin < 0) {
+    var hv = portfolioTotals().value, eq = hv + cashTotals().net;
+    notes.push("Margin loan of " + money(Math.abs(d.margin)) + " isn't a slice: your holdings are worth " +
+      (eq > 0 ? (hv / eq).toFixed(2) + "\u00d7 your equity of " + money(eq) + "." : "more than you own outright."));
+  }
   if (d.shorts < 0) notes.push("Short options are a liability of " + money(Math.abs(d.shorts)) + ", so they're left out of the chart.");
   if (d.unpriced) notes.push(plural(d.unpriced, "holding") + " without a price " + (d.unpriced === 1 ? "isn't" : "aren't") + " included.");
   if (d.noRate) notes.push(plural(d.noRate, "holding") + " in a currency without an exchange rate " + (d.noRate === 1 ? "isn't" : "aren't") + " included.");
@@ -3893,7 +3963,7 @@ function viewNetworth() {
   ]));
 
   /* accounts */
-  if (!S.networth.accounts.length) {
+  if (!S.networth.accounts.length && !cashList().length) {
     add(out, h("section", { class: "panel" }, emptyState(
       "No accounts yet",
       "Add your cash, super, property and loans. Investments are already counted from the portfolio.",
@@ -3907,11 +3977,28 @@ function viewNetworth() {
     h("td", {}, h("div", { class: "name" }, [h("b", { text: "Portfolio" }), h("small", { text: "live from lots and prices" })])),
     h("td", {}), h("td", { text: money(nw.portfolio) }), h("td", {})
   ]));
+  var brokerPos = cashList().filter(function (c) { return n(c.amount) > 0; });
+  var brokerNeg = cashList().filter(function (c) { return n(c.amount) < 0; });
+  function brokerRow(c) {
+    var v = baseOr0(n(c.amount), c.currency || S.settings.base);
+    return h("tr", {}, [
+      h("td", {}, h("div", { class: "name" }, [
+        h("b", { text: c.name || "Broker cash" }),
+        h("small", {}, [v < 0 ? "margin, in the portfolio" : "cash in the portfolio", c.note ? " · " + c.note : ""])
+      ])),
+      h("td", { text: (c.currency && c.currency !== S.settings.base) ? money2(n(c.amount), c.currency) : "" }),
+      h("td", { class: v < 0 ? "down" : "", text: money(v) }),
+      h("td", {}, h("button", { class: "btn sm quiet", text: "Edit", onclick: function () { editCash(c); } }))
+    ]);
+  }
   ACCOUNT_TYPES.forEach(function (t) {
     var group = S.networth.accounts.filter(function (a) { return a.type === t.id; });
-    if (!group.length) return;
+    var extra = t.id === "cash" ? brokerPos : [];
+    if (!group.length && !extra.length) return;
     var sub = group.reduce(function (a, x) { return a + (x.exclude ? 0 : baseOr0(n(x.value), x.currency || S.settings.base) * t.sign); }, 0);
+    extra.forEach(function (c) { sub += baseOr0(n(c.amount), c.currency || S.settings.base); });
     tb.appendChild(h("tr", { class: "group" }, [h("td", { colspan: "2", text: t.label }), h("td", { text: money(sub) }), h("td", {})]));
+    extra.forEach(function (c) { tb.appendChild(brokerRow(c)); });
     group.forEach(function (a) {
       var v = baseOr0(n(a.value), a.currency || S.settings.base) * t.sign;
       tb.appendChild(h("tr", {}, [
@@ -3925,6 +4012,10 @@ function viewNetworth() {
       ]));
     });
   });
+  if (brokerNeg.length) {
+    tb.appendChild(h("tr", { class: "group" }, [h("td", { colspan: "2", text: "Margin loans" }), h("td", { class: "down", text: money(nw.margin) }), h("td", {})]));
+    brokerNeg.forEach(function (c) { tb.appendChild(brokerRow(c)); });
+  }
   add(out, h("section", { class: "panel" }, [
     h("header", {}, [h("h2", { text: "What you own and owe" }), h("span", { class: "note", text: "in " + S.settings.base })]),
     h("div", { class: "body flush" }, h("div", { class: "tablewrap" }, h("table", {}, [
@@ -3933,6 +4024,46 @@ function viewNetworth() {
     ])))
   ]));
   return out;
+}
+
+function editCash(c) {
+  var isNew = !c;
+  var d = c ? JSON.parse(JSON.stringify(c)) : { id: uid(), name: "", amount: "", currency: "USD", note: "" };
+  var body = h("div", {}, [
+    field("Name", inp({ value: d.name, placeholder: "IBKR cash", oninput: function (e) { d.name = e.target.value; } })),
+    h("div", { class: "frow" }, [
+      field("Balance", inp({ type: "number", step: "any", value: d.amount, placeholder: "-5000", oninput: function (e) { d.amount = e.target.value; } }),
+        "Negative if you're borrowing on margin"),
+      field("Currency", inp({ value: d.currency, oninput: function (e) { d.currency = e.target.value.toUpperCase().trim(); } }))
+    ]),
+    field("Note", inp({ value: d.note || "", oninput: function (e) { d.note = e.target.value; } })),
+    h("p", { class: "muted", style: "font-size:12.5px", text: "Counted in your portfolio and in net worth: cash with your other cash, margin as a loan." })
+  ]);
+  openDialog({
+    title: isNew ? "Add cash or margin" : "Edit " + (c.name || "cash"),
+    body: body,
+    left: isNew ? null : h("button", {
+      type: "button", class: "btn danger", text: "Delete",
+      onclick: function () {
+        S.portfolio.cash = cashList().filter(function (x) { return x.id !== c.id; });
+        save("portfolio"); closeDialog(); snapshotToday(); render();
+      }
+    }),
+    actions: [{
+      label: isNew ? "Add" : "Save", primary: true,
+      onClick: function () {
+        if (d.amount === "" || !isFinite(parseFloat(d.amount))) { toast("Enter a balance (negative for margin)."); return false; }
+        d.amount = parseFloat(d.amount);
+        d.currency = d.currency || S.settings.base;
+        if (!d.name) d.name = d.amount < 0 ? "Margin loan" : "Broker cash";
+        if (d.currency !== S.settings.base && fxRate(d.currency) === null) S.settings.fx[d.currency] = S.settings.fx[d.currency] || null;
+        if (isNew) cashList().push(d);
+        else for (var i = 0; i < cashList().length; i++) if (cashList()[i].id === d.id) S.portfolio.cash[i] = d;
+        save("portfolio"); snapshotToday(); render();
+        if (d.currency !== S.settings.base && fxRate(d.currency) === null) refreshFx(true);
+      }
+    }]
+  });
 }
 
 function editAccount(a) {
