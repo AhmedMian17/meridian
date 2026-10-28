@@ -2,23 +2,21 @@
 
 Personal board: portfolio with live prices, net worth, budget, habits, training splits, nutrition and reminders.
 
-One HTML file plus one Cloudflare Pages Function. No build step, no dependencies.
+One HTML file and a small Cloudflare Worker. No build step.
 
 ```
-index.html               the whole app
-functions/api/proxy.js   price proxy, served at /api/proxy
-functions/api/store.js   sync database, served at /api/store
+public/index.html        the whole app
+src/worker.js            routes /api/* to the handlers below, serves everything else from public/
+functions/api/proxy.js   price proxy, at /api/proxy
+functions/api/store.js   sync database, at /api/store
+wrangler.jsonc           Worker settings (name, assets, D1 binding)
 ```
 
 ## Deploying
 
-Cloudflare Pages, connected to this repo:
+A Cloudflare Worker connected to this repo (Workers & Pages → Create → Import a repository). Every push to `main` deploys automatically, usually in under a minute.
 
-- **Framework preset:** None
-- **Build command:** *(leave empty)*
-- **Build output directory:** `/`
-
-Every push to `main` deploys automatically, usually in under a minute.
+The `name` in `wrangler.jsonc` must match the Worker's name in the dashboard.
 
 ## Live prices
 
@@ -40,14 +38,9 @@ The proxy forwards only to a fixed list of finance hosts and refuses requests fr
 
 With sync set up, your board lives in a D1 database on your own Cloudflare account. Every device keeps a copy, works offline, and catches up when it reconnects; edits from two devices at once are merged.
 
-One-time setup in the Cloudflare dashboard:
+The database is created automatically on the first deploy (`d1_databases` in `wrangler.jsonc`). The only setup is the passphrase: **Workers & Pages → meridian → Settings → Variables and Secrets → Add**, type *Secret*, name `SYNC_KEY`, value a long passphrase you'll remember.
 
-1. **Storage & Databases → D1 → Create database.** Any name, e.g. `meridian`.
-2. **Workers & Pages → your project → Settings → Bindings → Add → D1 database.** Variable name `DB`, pick the database.
-3. **Settings → Variables and secrets → Add.** Type *Secret*, name `SYNC_KEY`, value a long passphrase you'll remember.
-4. **Deployments → latest → Retry deployment** (or push anything) so both take effect.
-
-Open the site and it asks for the passphrase once per device. To lock every device out, change `SYNC_KEY` and redeploy; each device keeps its own copy and asks again.
+Open the site and it asks for the passphrase once per device. To lock every device out, change `SYNC_KEY`; each device keeps its own copy and asks again.
 
 Without the database set up, everything stays in each browser separately. Settings → Export everything gives you a backup file either way.
 

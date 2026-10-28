@@ -1,0 +1,10 @@
+{
+  // Must match the Worker's name in the Cloudflare dashboard.
+  "name": "meridian",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  // Wrangler creates this database on the first deploy and keeps it linked after that.
+  "d1_databases": [{ "binding": "DB" }],
+  "observability": { "enabled": true }
+}
