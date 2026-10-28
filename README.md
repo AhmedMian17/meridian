@@ -24,6 +24,10 @@ The app checks for `/api/proxy` when it opens. If it answers, live prices switch
 
 Yahoo symbols: US shares as-is (`NVDA`, `VOO`), ASX with `.AX` (`BHP.AX`), crypto as `BTC-USD`.
 
+US-listed options are priced from Yahoo too: the app builds the contract symbol from underlying, expiry, call/put and strike (NVDA $180 call, 18 Dec 2026 → `NVDA261218C00180000`). The price is the contract's last trade, so quiet contracts are flagged "stale price" when nothing has traded for over a day; any option can still be priced by hand.
+
+Exchange rates come from Yahoo with every price refresh (`USDAUD=X`), falling back to the ECB's daily rates if Yahoo has none.
+
 Check the proxy is reaching Yahoo by opening:
 
 ```

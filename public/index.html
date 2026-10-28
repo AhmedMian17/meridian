@@ -2184,7 +2184,10 @@ async function refreshPrices(opts) {
         var meta = d && d.chart && d.chart.result && d.chart.result[0] && d.chart.result[0].meta;
         if (!meta || !isFinite(meta.regularMarketPrice)) throw new Error("no quote");
         var q = yahooPrice(meta.regularMarketPrice, meta.currency);
-        if (applyPrice(p, q.value, q.cur || p.currency, { change24: meta.regularMarketChangePercent })) ok++;
+        if (applyPrice(p, q.value, q.cur || p.currency, {
+          change24: meta.regularMarketChangePercent,
+          tradedAt: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null
+        })) ok++;
       };
     })(g.yahoo[yi]));
     await wait(200);
@@ -2201,6 +2204,10 @@ async function refreshPrices(opts) {
       };
     })(g.finnhub[fi]));
     await wait(250);
+  }
+
+  if (proxyBase() && fxNeeded().length) {
+    try { await fxFromYahoo(fxNeeded()); } catch (e) {}
   }
 
   Px.running = false;
@@ -2267,16 +2274,51 @@ function priceStatus() {
   return bits.join(" · ");
 }
 
-/** Exchange rates from the ECB via Frankfurter. Published once a day, so once a day is enough. */
-async function refreshFx(silent) {
+function fxNeeded() {
   var need = {};
   S.portfolio.positions.forEach(function (p) { if (p.currency !== S.settings.base) need[p.currency] = 1; });
   S.networth.accounts.forEach(function (a) { if (a.currency && a.currency !== S.settings.base) need[a.currency] = 1; });
   Object.keys(S.settings.fx).forEach(function (c) { if (c !== S.settings.base) need[c] = 1; });
-  var syms = Object.keys(need);
+  return Object.keys(need).filter(function (c) { return /^[A-Z]{3}$/.test(c); });
+}
+/**
+ * Live exchange rates from Yahoo (e.g. USDAUD=X: Australian dollars per US dollar), fetched
+ * alongside prices. Returns the currencies it couldn't get, so the daily rates can fill those in.
+ */
+async function fxFromYahoo(syms) {
+  var missed = [];
+  for (var i = 0; i < syms.length; i++) {
+    var c = syms[i];
+    try {
+      var d = await jget(viaProxy(yahooUrl(c + S.settings.base + "=X")));
+      var meta = d && d.chart && d.chart.result && d.chart.result[0] && d.chart.result[0].meta;
+      if (!meta || !(meta.regularMarketPrice > 0)) throw new Error("no rate");
+      S.settings.fx[c] = meta.regularMarketPrice;
+    } catch (e) { missed.push(c); }
+    if (i < syms.length - 1) await wait(150);
+  }
+  if (missed.length < syms.length) {
+    S.settings.fx[S.settings.base] = 1;
+    S.settings.fxAt = new Date().toISOString();
+    S.settings.fxSource = "live";
+    save("settings");
+  }
+  return missed;
+}
+/** Exchange rates: live from Yahoo where your proxy is, otherwise the ECB's daily rates via Frankfurter. */
+async function refreshFx(silent) {
+  var syms = fxNeeded();
   if (!syms.length) {
     if (!silent) toast("Only " + S.settings.base + " in use, so there are no rates to fetch.");
     return;
+  }
+  if (proxyBase()) {
+    var missed = await fxFromYahoo(syms);
+    if (!missed.length) {
+      if (!silent) toast(plural(syms.length, "live rate") + " updated");
+      render(); return;
+    }
+    syms = missed;
   }
   try {
     var d = await jget(viaProxy("https://api.frankfurter.dev/v1/latest?base=" + encodeURIComponent(S.settings.base) +
@@ -2287,6 +2329,7 @@ async function refreshFx(silent) {
     }
     S.settings.fx[S.settings.base] = 1;
     S.settings.fxAt = new Date().toISOString();
+    if (got) S.settings.fxSource = "daily";
     UI.netBlocked = false;
     save("settings");
     if (!silent) toast(got ? got + " rate" + (got === 1 ? "" : "s") + " updated" : "No rates came back. Set them by hand below.");
@@ -2917,6 +2960,11 @@ function viewToday() {
 function sharesNotLive() {
   if (!proxyBase()) return [];
   return S.portfolio.positions.filter(function (p) {
+    if (p.kind === "option") {
+      if (!occSymbol(p)) return false;
+      if (p.source && p.source.type === "yahoo" && p.source.feedSymbol) return false;
+      return positionRoll(p).anyOpen;
+    }
     if (p.kind !== "stock" || !p.symbol) return false;
     var src = p.source || {};
     if (src.type === "yahoo" && src.feedSymbol) return false;
@@ -2925,7 +2973,33 @@ function sharesNotLive() {
     return positionRoll(p).anyOpen;
   });
 }
+/**
+ * The contract's symbol as Yahoo (and the OCC) spell it: underlying, expiry YYMMDD, C or P,
+ * strike × 1000 in eight digits. NVDA $180 call, 18 Dec 2026 → NVDA261218C00180000.
+ * US-listed options only; null if a detail is missing or it has expired.
+ */
+function occSymbol(p) {
+  var o = p.option || {};
+  var und = String(o.underlying || "").trim().toUpperCase().replace(/\s+/g, "");
+  var strike = parseFloat(o.strike);
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(o.expiry || "");
+  if (!und || !/^[A-Z][A-Z0-9]{0,5}$/.test(und) || !(strike > 0) || !m) return null;
+  if ((p.currency || "USD") !== "USD") return null;
+  if (o.expiry < today()) return null;
+  var k = String(Math.round(strike * 1000));
+  if (k.length > 8) return null;
+  return und + m[1].slice(2) + m[2] + m[3] + (o.right === "put" ? "P" : "C") + ("00000000" + k).slice(-8);
+}
+function optionLabel(p) {
+  var o = p.option || {};
+  var bits = [String(o.underlying || "").toUpperCase()];
+  if (parseFloat(o.strike) > 0) bits.push(parseFloat(o.strike) + (o.right === "put" ? "P" : "C"));
+  if (o.expiry) bits.push(fmtDate(o.expiry));
+  return bits.filter(Boolean).join(" ");
+}
+function liveLabel(p) { return p.kind === "option" ? (p.symbol || optionLabel(p)) : yahooSymbolFor(p); }
 function yahooSymbolFor(p) {
+  if (p.kind === "option") return occSymbol(p);
   var sym = String(p.symbol).trim().toUpperCase();
   if (sym.indexOf(".") < 0 && sym.indexOf(":") < 0 && p.currency === "AUD") sym += ".AX";
   return sym.replace(/:ASX$/, ".AX");
@@ -2944,7 +3018,7 @@ function banners() {
     add(out, h("div", { class: "banner" }, [
       h("div", {}, [
         h("b", { text: plural(off.length, "holding") + " could have live prices. " }),
-        off.map(function (p) { return yahooSymbolFor(p); }).join(", ") + " — priced by hand right now."
+        off.map(liveLabel).join(", ") + " — priced by hand right now."
       ]),
       h("button", { class: "btn sm primary", text: "Turn on live prices", onclick: turnOnLivePrices })
     ]));
@@ -3023,7 +3097,7 @@ function viewPortfolio() {
   if (!S.portfolio.positions.length) {
     add(out, h("section", { class: "panel" }, emptyState(
       "No positions yet",
-      "Start with one holding. Crypto can be added by pasting a token address; options track strike, expiry and a mark price you set.",
+      "Start with one holding. Crypto can be added by pasting a token address; options track strike and expiry, priced live or by hand.",
       h("button", { class: "btn primary", text: "Add your first position", onclick: function () { editPosition(null); } })
     )));
     return out;
@@ -3060,6 +3134,11 @@ function viewPortfolio() {
   return out;
 }
 
+/** A live-priced option whose last trade is more than a day older than the newest price check. */
+function optionStale(p) {
+  if (p.kind !== "option" || !p.source || p.source.type !== "yahoo" || !p.meta || !p.meta.tradedAt || !p.price || !p.price.at) return false;
+  return new Date(p.price.at) - new Date(p.meta.tradedAt) > 30 * 3600000;
+}
 function positionRows(body, p) {
   var r = positionRoll(p);
   var open = UI.expanded[p.id];
@@ -3074,6 +3153,10 @@ function positionRows(body, p) {
     sub.push(spec.join(" \u00b7 "));
     var dte = p.option.expiry ? dayDiff(today(), p.option.expiry) : null;
     if (dte !== null) sub.push(dte < 0 ? "expired" : dte + " days to expiry");
+    if (p.source && p.source.type === "yahoo") {
+      var traded = p.meta && p.meta.tradedAt;
+      sub.push(traded ? "last traded " + ago(traded) : "live");
+    } else sub.push("priced by hand" + (p.price && p.price.at ? " " + ago(p.price.at) : ""));
   } else if (p.name) sub.push(p.name);
   if (p.source && p.source.type === "dexscreener" && p.source.address) sub.push((p.source.chainId || "chain") + " · " + shortAddr(p.source.address));
   if (p.currency !== S.settings.base) sub.push(p.currency);
@@ -3086,7 +3169,9 @@ function positionRows(body, p) {
           onclick: function () { UI.expanded[p.id] = !UI.expanded[p.id]; render(); }
         }),
         r.nextDiscount !== null && r.nextDiscount <= 60 && p.kind !== "option"
-          ? h("span", { class: "tag brass", style: "margin-left:7px", text: r.nextDiscount + "d to CGT discount" }) : null
+          ? h("span", { class: "tag brass", style: "margin-left:7px", text: r.nextDiscount + "d to CGT discount" }) : null,
+        optionStale(p) ? h("span", { class: "tag brass", style: "margin-left:7px", text: "stale price",
+          title: "No trade in this contract for over a day, so its last price may be well off the market" }) : null
       ]),
       sub.length ? h("small", { text: sub.join(" · ") }) : null
     ])),
@@ -3229,11 +3314,31 @@ function editPosition(p) {
         field("Multiplier", inp({ type: "number", step: "1", value: n(o.multiplier, 100), oninput: function (e) { o.multiplier = e.target.value; } }), "Units per contract"),
         field("Currency", inp({ value: draft.currency, oninput: function (e) { draft.currency = e.target.value.toUpperCase(); } }))
       ]));
-      fields.push(field("Mark price per unit", inp({
-        type: "number", step: "any", value: draft.price && draft.price.value !== null ? draft.price.value : "",
-        oninput: function (e) { draft.price = { value: e.target.value === "" ? null : parseFloat(e.target.value), at: new Date().toISOString() }; }
-      }), "Quoted premium, e.g. 2.35 — value is price × multiplier × contracts."));
-      draft.source = { type: "manual" };
+      if (!draft.source || (draft.source.type !== "yahoo" && draft.source.type !== "manual")) draft.source = { type: "manual" };
+      if (isNew && !draft.optSrcTouched && proxyBase()) draft.source = { type: "yahoo" };
+      var live = draft.source.type === "yahoo";
+      var occHint = h("span");
+      function showOcc() {
+        var sym = occSymbol(draft);
+        occHint.textContent = sym ? "Yahoo contract " + sym + ". Price is the last trade, which can lag for quiet contracts."
+          : "Fill in underlying, strike and a future expiry. US-listed options only.";
+      }
+      fields.push(h("div", { class: "frow" }, [
+        field("Price source", sel([{ v: "yahoo", l: "Live (Yahoo)" }, { v: "manual", l: "Mark price by hand" }], draft.source.type, {
+          onchange: function (e) { draft.optSrcTouched = true; draft.source = { type: e.target.value }; build(); }
+        })),
+        live
+          ? field("Contract", h("div", { class: "hint", style: "padding-top:9px" }, occHint), proxyBase() ? null : "Live only in the deployed app")
+          : field("Mark price per unit", inp({
+              type: "number", step: "any", value: draft.price && draft.price.value !== null ? draft.price.value : "",
+              oninput: function (e) { draft.price = { value: e.target.value === "" ? null : parseFloat(e.target.value), at: new Date().toISOString() }; }
+            }), "Quoted premium, e.g. 2.35 — value is price × multiplier × contracts.")
+      ]));
+      if (live) {
+        showOcc();
+        bodyWrap.addEventListener("input", showOcc);
+        bodyWrap.addEventListener("change", showOcc);
+      }
     } else if (draft.kind === "crypto") {
       var addrInput = inp({
         class: "mono", value: (draft.source && draft.source.address) || "",
@@ -3336,6 +3441,19 @@ function editPosition(p) {
     actions: [{
       label: isNew ? "Add position" : "Save", primary: true,
       onClick: function () {
+        if (draft.kind === "option") {
+          delete draft.optSrcTouched;
+          if (!draft.symbol && draft.option && draft.option.underlying) draft.symbol = optionLabel(draft);
+          if (draft.source && draft.source.type === "yahoo") {
+            var occ = occSymbol(draft);
+            if (!occ) { toast("Live prices need the underlying, strike and a future expiry, on a US-listed option."); return false; }
+            var changed = draft.source.feedSymbol !== occ;
+            draft.source = { type: "yahoo", feedSymbol: occ };
+            if (changed) { draft.meta = null; setTimeout(function () { refreshPrices({ silent: true, force: true }); }, 200); }
+          } else if (draft.kind === "option") draft.source = { type: "manual" };
+        } else if (draft.source && draft.source.type === "yahoo" && draft.source.feedSymbol && (!p || !p.source || p.source.feedSymbol !== draft.source.feedSymbol)) {
+          setTimeout(function () { refreshPrices({ silent: true, force: true }); }, 200);
+        }
         if (!draft.symbol && !draft.name) { toast("Give it a symbol or a name."); return false; }
         if (!draft.currency) draft.currency = S.settings.base;
         if (isNew) S.portfolio.positions.push(draft);
@@ -4451,7 +4569,9 @@ function viewSettings() {
   var newCur = inp({ placeholder: "JPY", style: "max-width:110px" });
   add(out, h("section", { class: "panel" }, [
     h("header", {}, [h("h2", { text: "Currency" }),
-      h("span", { class: "note", text: S.settings.fxAt ? "rates set " + new Date(S.settings.fxAt).toLocaleDateString() : "rates set by hand" })]),
+      h("span", { class: "note", text: !S.settings.fxAt ? "rates set by hand"
+        : S.settings.fxSource === "live" ? "live rates, updated " + ago(S.settings.fxAt)
+        : "daily rates from " + new Date(S.settings.fxAt).toLocaleDateString() })]),
     h("div", { class: "body" }, [
       h("div", { class: "frow" }, [
         field("Everything is shown in", inp({
