@@ -2719,7 +2719,8 @@ function openDialog(opts) {
   right.appendChild(h("button", { type: "button", class: "btn quiet", text: "Cancel", onclick: function () { dlg.close(); } }));
   dlg.showModal();
   var first = body.querySelector("input,select,textarea,button");
-  if (first) setTimeout(function () { try { first.focus(); } catch (e) {} }, 30);
+  // don't pull the cursor away from a field you've already clicked into
+  if (first) setTimeout(function () { try { if (!body.contains(document.activeElement)) first.focus(); } catch (e) {} }, 30);
 }
 function closeDialog() { qs("#dlg").close(); }
 
