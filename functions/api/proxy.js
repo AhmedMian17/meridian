@@ -32,10 +32,12 @@ export async function onRequest({ request }) {
 
   if (request.method !== "GET") return json({ error: "GET only" }, 405);
 
-  // Browsers label requests made by other sites; refuse those.
+  // Browsers label requests made by other sites; refuse those. Opening a link
+  // to this address is fine: the page that held the link can't read the result.
   const origin = request.headers.get("Origin");
   const site = request.headers.get("Sec-Fetch-Site");
-  if ((origin && origin !== here.origin) || site === "cross-site") {
+  const mode = request.headers.get("Sec-Fetch-Mode");
+  if ((origin && origin !== here.origin) || (site === "cross-site" && mode !== "navigate")) {
     return json({ error: "Requests from other sites aren't allowed" }, 403);
   }
 
