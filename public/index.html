@@ -356,6 +356,16 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .bdrow .bar i{display:block; height:100%; border-radius:0 3px 3px 0}
 .bdrow .pc{text-align:right; color:var(--ink-2); font-size:12px}
 .bdrow .vl{text-align:right; font-variant-numeric:tabular-nums}
+.bdpie{display:flex; flex-direction:column; align-items:center; gap:12px}
+.bdpie .bdring svg{width:180px; height:180px; display:block}
+.bdpie .allocrows{width:100%}
+.bdpie .allocrow{grid-template-columns:10px minmax(0,1fr) auto auto}
+.bdpie .allocrow .sw{width:10px; height:10px}
+.bdpie .slice{transition:opacity .12s ease}
+.bdpie[data-hover] .slice{opacity:.25}
+.bdpie[data-hover] .slice.on{opacity:1}
+.bdpie[data-hover] .allocrow{opacity:.4}
+.bdpie[data-hover] .allocrow.on{opacity:1}
 
 /* ---------- allocation donut ---------- */
 .alloc{display:grid; grid-template-columns:220px minmax(0,1fr); gap:28px; align-items:center}
@@ -3073,9 +3083,34 @@ function timeChart(rows, opts) {
   }
   return wrap;
 }
-/** What you own and owe today, each side as a share of itself. */
+/** A ring for one side of the breakdown; slices keep the same colours as everywhere else on this tab. */
+function bdDonutSvg(list, total, sign) {
+  var R = 70, W = 30, C = 2 * Math.PI * R, acc = 0;
+  var o = '<svg viewBox="0 0 200 200" role="img" aria-label="' + (sign > 0 ? "Assets" : "Liabilities") + ' breakdown">';
+  o += '<defs><pattern id="nwHatchRing' + (sign > 0 ? "A" : "L") + '" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)">' +
+    '<rect width="5" height="5" fill="var(--nw8)" opacity=".25"/><rect width="2" height="5" fill="var(--nw8)"/></pattern></defs>';
+  o += '<circle cx="100" cy="100" r="' + R + '" fill="none" stroke="var(--sunken)" stroke-width="' + W + '"/>';
+  list.forEach(function (x) {
+    var len = (x.v / total) * C, gap = list.length > 1 && len > 3 ? 1.6 : 0;
+    o += '<circle class="slice" data-key="' + x.c.key + '" cx="100" cy="100" r="' + R + '" fill="none" stroke="' +
+      (x.c.hatch ? "url(#nwHatchRing" + (sign > 0 ? "A" : "L") + ")" : x.c.colour) + '" stroke-width="' + W +
+      '" stroke-dasharray="' + Math.max(0.01, len - gap).toFixed(3) + " " + (C - len + gap).toFixed(3) +
+      '" stroke-dashoffset="' + (-acc).toFixed(3) + '" transform="rotate(-90 100 100)"><title>' +
+      esc(x.c.label) + " \u00b7 " + allocPct((x.v / total) * 100) + " \u00b7 " + esc(money(sign * x.v)) + "</title></circle>";
+    acc += len;
+  });
+  o += '<text x="100" y="99" text-anchor="middle" class="donut-total">' + esc(moneyShort(sign * total)) + "</text>";
+  o += '<text x="100" y="118" text-anchor="middle" class="donut-label">' + (sign > 0 ? "owned" : "owed") + "</text>";
+  return o + "</svg>";
+}
+function bdView() {
+  if (UI.bdView) return UI.bdView;
+  try { UI.bdView = localStorage.getItem("meridian-ui:bdView") || "bars"; } catch (e) { UI.bdView = "bars"; }
+  return UI.bdView;
+}
+/** What you own and owe today, each side as a share of itself — as bars or as two rings. */
 function breakdownPanel(nw) {
-  var m = nwPartsMap(nw);
+  var m = nwPartsMap(nw), view = bdView();
   function side(sign, title) {
     var list = NW_CATS.filter(function (c) { return c.side === sign && m[c.key] && (sign > 0 ? m[c.key] > 0 : m[c.key] < 0); })
       .map(function (c) { return { c: c, v: Math.abs(m[c.key]) }; })
@@ -3084,6 +3119,31 @@ function breakdownPanel(nw) {
     var col = h("div", { class: "nwviz" }, [h("div", { class: "bdhead" }, [h("h3", { text: title }),
       h("span", { class: sign < 0 && total ? "down" : "", text: money(sign * total) })])]);
     if (!list.length) { col.appendChild(h("p", { class: "muted", style: "font-size:12.5px", text: sign > 0 ? "No assets yet." : "Nothing owed." })); return col; }
+    if (view === "pie") {
+      var ring = h("div", { class: "bdpie" });
+      add(ring, svgEl(bdDonutSvg(list, total, sign), "bdring"));
+      add(ring, h("div", { class: "allocrows" }, list.map(function (x) {
+        return h("div", { class: "allocrow", "data-key": x.c.key }, [
+          h("i", { class: "sw" + (x.c.hatch ? " hatch" : ""), style: "background:" + x.c.colour }),
+          h("span", { class: "lbl" }, [h("b", { text: x.c.label })]),
+          h("span", { class: "pc", text: allocPct((x.v / total) * 100) }),
+          h("span", { class: "vl", text: money(sign * x.v) })
+        ]);
+      })));
+      // hovering a slice or a row highlights its partner, as on the portfolio chart
+      ring.querySelectorAll("[data-key]").forEach(function (el) {
+        el.addEventListener("mouseenter", function () {
+          ring.setAttribute("data-hover", "1");
+          ring.querySelectorAll("[data-key]").forEach(function (o) { o.classList.toggle("on", o.getAttribute("data-key") === el.getAttribute("data-key")); });
+        });
+        el.addEventListener("mouseleave", function () {
+          ring.removeAttribute("data-hover");
+          ring.querySelectorAll(".on").forEach(function (o) { o.classList.remove("on"); });
+        });
+      });
+      col.appendChild(ring);
+      return col;
+    }
     list.forEach(function (x) {
       var share = total ? (x.v / total) * 100 : 0;
       col.appendChild(h("div", { class: "bdrow" }, [
@@ -3100,8 +3160,17 @@ function breakdownPanel(nw) {
   var assets = side(1, "Assets"), owes = side(-1, "Liabilities");
   var ratio = nw.assets > 0 && nw.liabilities < 0 ? h("p", { class: "muted", style: "font-size:12px;margin-top:14px",
     text: "You owe " + allocPct((Math.abs(nw.liabilities) / nw.assets) * 100) + " of what you own." }) : null;
+  var toggle = h("div", { class: "chips", style: "margin:0", role: "group", "aria-label": "Breakdown view" },
+    [{ v: "bars", l: "Bars" }, { v: "pie", l: "Pie" }].map(function (o) {
+      return h("button", { class: "chip", text: o.l, "aria-pressed": view === o.v ? "true" : "false", onclick: function () {
+        UI.bdView = o.v;
+        try { localStorage.setItem("meridian-ui:bdView", o.v); } catch (e) {}
+        render();
+      } });
+    }));
   return h("section", { class: "panel" }, [
-    h("header", {}, [h("h2", { text: "Breakdown" }), h("span", { class: "note", text: "today, in " + S.settings.base })]),
+    h("header", {}, [h("h2", { text: "Breakdown" }),
+      h("div", { class: "mrow", style: "gap:10px" }, [h("span", { class: "note", text: "today, in " + S.settings.base }), toggle])]),
     h("div", { class: "body" }, [h("div", { class: "bdgrid" }, [assets, owes]), ratio])
   ]);
 }
