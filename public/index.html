@@ -436,6 +436,39 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .ptag{border:0; background:var(--brass-wash); color:var(--brass); border-radius:9px; padding:1px 8px; font-size:11px; font-weight:500; cursor:pointer; font-family:inherit}
 .ptag:hover{text-decoration:underline}
 .tagbar .body{padding-top:12px; padding-bottom:12px}
+.tgt{display:flex; flex-direction:column}
+.tgtrow{display:grid; grid-template-columns:minmax(90px,1.1fr) minmax(120px,2fr) 58px 58px 78px 112px; gap:12px; align-items:center; padding:8px 4px; border-bottom:1px dotted var(--line); font-size:13px}
+.tgtrow:last-child{border-bottom:0}
+.tgtrow.tgthead{font-size:11.5px; color:var(--ink-3); border-bottom:1px solid var(--line); padding-top:0}
+.tgtrow.off{background:var(--brass-wash)}
+.tgtrow .nm{display:flex; flex-direction:column; min-width:0}
+.tgtrow .nm b{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.tgtrow .nm small{color:var(--ink-3); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.tgtrow .num{text-align:right; font-variant-numeric:tabular-nums}
+.tgtrow .drift{color:var(--ink-2)}
+.tgtrow .drift.over::before{content:"\25B2 "; font-size:9px}
+.tgtrow .drift.under::before{content:"\25BC "; font-size:9px}
+.tbar{position:relative; display:block; height:10px; background:var(--sunken); border-radius:3px}
+.tbar .act{position:absolute; left:0; top:0; bottom:0; background:var(--brass); border-radius:3px}
+.tbar .mark{position:absolute; top:-4px; bottom:-4px; width:2px; margin-left:-1px; background:var(--ink); border-radius:1px; box-shadow:0 0 0 1.5px var(--surface)}
+.tgtlegend{display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:10px; font-size:12px; color:var(--ink-2); align-items:center}
+.tgtlegend span{display:flex; align-items:center; gap:6px}
+.tgtlegend i.act{width:14px; height:8px; background:var(--brass); border-radius:2px; display:block}
+.tgtlegend i.mark{width:2px; height:12px; background:var(--ink); display:block}
+@media (max-width:720px){
+  .tgtrow{grid-template-columns:minmax(0,1fr) 52px 52px 74px; gap:8px}
+  .tgtrow .barcol{grid-column:1 / -1; order:5}
+  .tgtrow > span:last-child{grid-column:1 / -1; text-align:left; order:6; font-size:12px; color:var(--ink-2)}
+  .tgtrow.tgthead .barcol, .tgtrow.tgthead > span:last-child{display:none}
+}
+.tgtedit{display:flex; flex-direction:column; max-height:52vh; overflow:auto; border:1px solid var(--line); border-radius:6px}
+.tgteditrow{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 10px; border-bottom:1px dotted var(--line); cursor:text}
+.tgteditrow:last-child{border-bottom:0}
+.tgteditrow .nm{display:flex; flex-direction:column; min-width:0}
+.tgteditrow .nm small{color:var(--ink-3); font-size:11.5px}
+.tgteditrow .pin{display:flex; align-items:center; gap:6px}
+.tgteditrow input{width:84px; text-align:right}
+.tgtfoot{margin-top:10px; font-size:13px}
 .tagbar{position:relative; z-index:4; overflow:visible}
 .tagdd{position:relative}
 .tagddpanel{position:absolute; top:calc(100% + 6px); left:0; z-index:20; width:260px; max-height:360px; overflow:auto; background:var(--surface);
@@ -3487,6 +3520,7 @@ function viewPortfolio() {
 
   add(out, tagFilterBar());
   add(out, allocationPanel());
+  add(out, targetsPanel());
 
   /* grouped table */
   WT_TOTAL = allocationData("holding", { all: true }).total;
@@ -3552,6 +3586,142 @@ function optionStale(p) {
   if (p.kind !== "option" || !p.source || p.source.type !== "yahoo" || !p.meta || !p.meta.tradedAt || !p.price || !p.price.at) return false;
   return new Date(p.price.at) - new Date(p.meta.tradedAt) > 30 * 3600000;
 }
+/* ============================================================
+   Target allocation — what you'd like each holding to be, against what it is
+   ============================================================ */
+function hasTarget(p) { return p && typeof p.target === "number" && isFinite(p.target) && p.target >= 0; }
+function fmtPct(v) { var r = Math.round(v * 10) / 10; return (r % 1 ? r.toFixed(1) : String(r)) + "%"; }
+function cashTarget() { var t = S.portfolio.cashTarget; return typeof t === "number" && isFinite(t) && t >= 0 ? t : null; }
+/**
+ * Every open, priced, long holding (and positive cash) as a share of the whole portfolio — the same
+ * basis as the allocation chart, so the two always agree — beside its target.
+ */
+function targetData() {
+  var rows = [], total = 0;
+  S.portfolio.positions.forEach(function (p) {
+    var r = positionRoll(p);
+    if (!r.anyOpen) return;
+    var v = r.valueBase;
+    if (v === null || !(v > 0)) { if (hasTarget(p)) rows.push({ p: p, key: p.id, label: p.symbol || p.name || "\u2014", value: 0, target: p.target, unpriced: v === null }); return; }
+    total += v;
+    rows.push({ p: p, key: p.id, label: p.symbol || p.name || "\u2014", sub: p.kind === "option" ? "option" : (p.name && p.name !== p.symbol ? p.name : ""), value: v, target: hasTarget(p) ? p.target : null });
+  });
+  var cash = cashTotals().cash;
+  if (cash > 0 || cashTarget() !== null) { total += Math.max(0, cash); rows.push({ key: "_cash", label: "Cash", sub: "at brokers", value: Math.max(0, cash), target: cashTarget(), cash: true }); }
+  var targetSum = 0, withTarget = 0;
+  rows.forEach(function (r) {
+    r.actual = total ? (r.value / total) * 100 : 0;
+    if (r.target !== null) {
+      targetSum += r.target; withTarget++;
+      r.diff = r.actual - r.target;                                   // percentage points
+      r.trade = (r.target / 100) * total - r.value;                   // + buy, - sell
+    }
+  });
+  rows.sort(function (a, b) { return Math.max(b.actual, b.target || 0) - Math.max(a.actual, a.target || 0); });
+  return { rows: rows, total: total, targetSum: targetSum, withTarget: withTarget };
+}
+
+function targetsPanel() {
+  var d = targetData();
+  if (!d.rows.length) return null;
+  var head = h("header", {}, [h("h2", { text: "Target vs actual" }),
+    h("button", { class: "btn sm" + (d.withTarget ? "" : " primary"), text: d.withTarget ? "Edit targets" : "Set targets", onclick: editAllocTargets })]);
+  if (!d.withTarget) {
+    return h("section", { class: "panel" }, [head, h("div", { class: "body" }, h("p", { class: "muted", style: "font-size:13px", text:
+      "Plan what share of your portfolio each holding should be, then see how far each one has drifted and what it would take to get back." }))]);
+  }
+  var max = 0;
+  d.rows.forEach(function (r) { max = Math.max(max, r.actual, r.target || 0); });
+  max = max ? Math.ceil(max / 5) * 5 : 100;
+  var on = function (r) { return r.target !== null && Math.abs(r.diff) < 0.25; };
+
+  var tbl = h("div", { class: "tgt" }, [
+    h("div", { class: "tgtrow tgthead" }, [h("span", { text: "Holding" }), h("span", { class: "barcol", text: "Actual \u2014 target marked" }),
+      h("span", { class: "num", text: "Actual" }), h("span", { class: "num", text: "Target" }), h("span", { class: "num", text: "Drift" }), h("span", { class: "num", text: "To rebalance" })])
+  ]);
+  d.rows.forEach(function (r) {
+    var drift = r.target === null ? "\u2014" : on(r) ? "on target" : (r.diff > 0 ? "+" : "\u2212") + fmtPct(Math.abs(r.diff)).replace("%", " pts");
+    var act = r.target === null ? h("span", { class: "muted", text: "no target" })
+      : on(r) ? h("span", { class: "muted", text: "\u2014" })
+      : h("span", { text: (r.trade > 0 ? "Buy " : "Sell ") + money(Math.abs(r.trade)) });
+    tbl.appendChild(h("div", { class: "tgtrow" + (r.target !== null && Math.abs(r.diff) >= 2 ? " off" : "") }, [
+      h("span", { class: "nm" }, [h("b", { text: r.label }), r.unpriced ? h("small", { text: "no price yet" }) : r.sub ? h("small", { text: r.sub }) : null]),
+      h("span", { class: "barcol" }, h("span", { class: "tbar", title: r.label + ": " + fmtPct(r.actual) + " now" + (r.target !== null ? ", target " + fmtPct(r.target) : "") }, [
+        h("i", { class: "act", style: "width:" + Math.min(100, (r.actual / max) * 100).toFixed(2) + "%" }),
+        r.target !== null ? h("i", { class: "mark", style: "left:" + Math.min(100, (r.target / max) * 100).toFixed(2) + "%" }) : null
+      ])),
+      h("span", { class: "num", text: fmtPct(r.actual) }),
+      h("span", { class: "num" + (r.target === null ? " muted" : ""), text: r.target === null ? "\u2014" : fmtPct(r.target) }),
+      h("span", { class: "num drift" + (r.target !== null && !on(r) ? (r.diff > 0 ? " over" : " under") : ""), text: drift }),
+      h("span", { class: "num", style: "white-space:nowrap" }, act)
+    ]));
+  });
+
+  var notes = [];
+  var gap = 100 - d.targetSum;
+  if (Math.abs(gap) >= 0.05) notes.push(gap > 0 ? "Your targets add up to " + fmtPct(d.targetSum) + ", leaving " + fmtPct(gap) + " unplanned." :
+    "Your targets add up to " + fmtPct(d.targetSum) + ", " + fmtPct(-gap) + " more than the whole portfolio.");
+  var noT = d.rows.filter(function (r) { return r.target === null; });
+  if (noT.length) notes.push(plural(noT.length, "holding") + " without a target " + (noT.length === 1 ? "isn't" : "aren't") + " compared.");
+  notes.push("Buy and sell amounts are what each holding needs on its own to reach its target, at today's value of " + money(d.total) +
+    ". Your tag filter doesn't apply here; this is always the whole portfolio.");
+  return h("section", { class: "panel" }, [head, h("div", { class: "body" }, [
+    tbl,
+    h("div", { class: "tgtlegend" }, [h("span", {}, [h("i", { class: "act" }), "Actual"]), h("span", {}, [h("i", { class: "mark" }), "Target"]),
+      h("span", { class: "muted", text: "Holdings 2 or more points off target are highlighted." })]),
+    h("p", { class: "muted", style: "font-size:12px;margin-top:8px", text: notes.join(" ") })
+  ])]);
+}
+
+function editAllocTargets() {
+  var d = targetData();
+  var draft = {};
+  d.rows.forEach(function (r) { draft[r.key] = r.target === null ? "" : String(r.target); });
+  var foot = h("div", { class: "tgtfoot" });
+  var inputs = {};
+  function sum() { var t = 0; Object.keys(draft).forEach(function (k) { var v = parseFloat(draft[k]); if (isFinite(v)) t += v; }); return t; }
+  function refresh() {
+    var t = sum(), gap = 100 - t;
+    foot.innerHTML = "";
+    add(foot, [h("b", { text: "Total " + fmtPct(t) }),
+      h("span", { class: Math.abs(gap) < 0.05 ? "up" : "muted", text: Math.abs(gap) < 0.05 ? " \u2713 adds up to 100%" : gap > 0 ? " \u00b7 " + fmtPct(gap) + " left to plan" : " \u00b7 " + fmtPct(-gap) + " over 100%" })]);
+  }
+  var list = h("div", { class: "tgtedit" }, d.rows.map(function (r) {
+    var input = inp({ type: "number", step: "0.1", min: "0", max: "100", inputmode: "decimal", value: draft[r.key], placeholder: "\u2014",
+      oninput: function (e) { draft[r.key] = e.target.value; refresh(); } });
+    inputs[r.key] = input;
+    return h("label", { class: "tgteditrow" }, [
+      h("span", { class: "nm" }, [h("b", { text: r.label }), h("small", { text: "now " + fmtPct(r.actual) })]),
+      h("span", { class: "pin" }, [input, h("span", { class: "muted", text: "%" })])
+    ]);
+  }));
+  refresh();
+  openDialog({
+    title: "Target allocation",
+    body: h("div", {}, [
+      h("p", { class: "muted", style: "font-size:12.5px;margin-bottom:10px", text: "Share of your whole portfolio each holding should be. Leave one empty to not compare it." }),
+      list, foot
+    ]),
+    left: h("div", { class: "mrow", style: "gap:6px" }, [
+      h("button", { type: "button", class: "btn sm quiet", text: "Fill with current", title: "Start from today's allocation",
+        onclick: function () { d.rows.forEach(function (r) { draft[r.key] = String(Math.round(r.actual * 10) / 10); inputs[r.key].value = draft[r.key]; }); refresh(); } }),
+      h("button", { type: "button", class: "btn sm quiet", text: "Clear all",
+        onclick: function () { d.rows.forEach(function (r) { draft[r.key] = ""; inputs[r.key].value = ""; }); refresh(); } })
+    ]),
+    actions: [{ label: "Save targets", primary: true, onClick: function () {
+      var bad = Object.keys(draft).some(function (k) { var v = draft[k]; return v !== "" && !(parseFloat(v) >= 0 && parseFloat(v) <= 100); });
+      if (bad) { toast("Targets need to be between 0 and 100."); return false; }
+      S.portfolio.positions.forEach(function (p) {
+        if (!(p.id in draft)) return;
+        var v = draft[p.id];
+        if (v === "") delete p.target; else p.target = Math.round(parseFloat(v) * 100) / 100;
+      });
+      if ("_cash" in draft) { if (draft._cash === "") delete S.portfolio.cashTarget; else S.portfolio.cashTarget = Math.round(parseFloat(draft._cash) * 100) / 100; }
+      save("portfolio"); render();
+    } }]
+  });
+}
+
 /** Share of the portfolio, on the same basis as the allocation chart (priced, long holdings). */
 var WT_TOTAL = 0;
 function weightOf(v) {
@@ -3605,7 +3775,8 @@ function positionRows(body, p) {
     })),
     h("td", {}, [
       r.valueBase === null ? "—" : money(r.valueBase),
-      r.anyOpen && weightOf(r.valueBase) ? h("div", { class: "muted", style: "font-size:11.5px", text: weightOf(r.valueBase) + " of portfolio" }) : null
+      r.anyOpen && weightOf(r.valueBase) ? h("div", { class: "muted", style: "font-size:11.5px", text: weightOf(r.valueBase) + " of portfolio" +
+        (hasTarget(p) ? " \u00b7 target " + fmtPct(p.target) : "") }) : null
     ]),
     h("td", { class: cls(r.gainBase) }, [
       r.gainBase === null ? "—" : signed(r.gainBase),
