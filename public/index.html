@@ -471,6 +471,10 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .tgtfoot{margin-top:10px; font-size:13px}
 .tgtadd{margin-top:14px; padding-top:12px; border-top:1px solid var(--line)}
 .tgtprev{margin-top:8px; font-size:12px; color:var(--ink-2)}
+.closedtgl{gap:6px; font-size:12.5px; color:var(--ink-2); cursor:pointer; white-space:nowrap}
+.closedtgl input{width:auto; margin:0}
+tr.closedrow > td{color:var(--ink-3)}
+tr.closedrow > td b{color:var(--ink-2)}
 .tgthdr{flex-wrap:wrap; gap:8px}
 .trings{display:flex; flex-direction:column; gap:16px}
 .trpair{display:flex; justify-content:center; gap:40px; flex-wrap:wrap}
@@ -3549,6 +3553,8 @@ function viewPortfolio() {
   add(out, targetsPanel());
 
   /* grouped table */
+  var closedCount = S.portfolio.positions.filter(function (p) { return isClosed(p) && passesTagFilter(p); }).length;
+  var showClosed = tgtPref("showClosed", "0") === "1";
   WT_TOTAL = allocationData("holding", { all: true }).total;
   var tbl = h("table", {}, [
     h("thead", {}, h("tr", {}, [
@@ -3558,7 +3564,7 @@ function viewPortfolio() {
   ]);
   var body = h("tbody");
   KINDS.forEach(function (k) {
-    var group = S.portfolio.positions.filter(function (p) { return p.kind === k.v && passesTagFilter(p); });
+    var group = S.portfolio.positions.filter(function (p) { return p.kind === k.v && passesTagFilter(p) && (showClosed || !isClosed(p)); });
     if (!group.length) return;
     var sub = group.reduce(function (a, p) { var r = positionRoll(p); return a + (r.valueBase || 0); }, 0);
     var wsub = weightOf(sub);
@@ -3598,6 +3604,9 @@ function viewPortfolio() {
     h("header", {}, [h("h2", { text: "Holdings" }),
       h("div", { class: "mrow", style: "gap:10px" }, [
         h("span", { class: "note", text: "Select a row to see its lots" }),
+        closedCount ? h("label", { class: "mrow closedtgl", title: "Holdings you've fully sold" }, [
+          h("input", { type: "checkbox", checked: showClosed, onchange: function (e) { setTgtPref("showClosed", e.target.checked ? "1" : "0"); } }),
+          "Show closed (" + closedCount + ")"]) : null,
         h("button", { class: "btn sm", text: cashList().length ? "Add cash" : "Add cash or margin", onclick: function () { editCash(null); } })
       ])]),
     h("div", { class: "body flush" }, h("div", { class: "tablewrap" }, tbl))
@@ -4040,6 +4049,8 @@ function weightOf(v) {
   if (v === null || !(v > 0) || !(WT_TOTAL > 0)) return "";
   return allocPct((v / WT_TOTAL) * 100);
 }
+/** Fully sold: it has lots, and none of them has anything left. (No lots at all = planned, not closed.) */
+function isClosed(p) { return lotsOf(p.id).length > 0 && !positionRoll(p).anyOpen; }
 function positionRows(body, p) {
   var r = positionRoll(p);
   var open = UI.expanded[p.id];
@@ -4062,7 +4073,9 @@ function positionRows(body, p) {
   if (p.source && p.source.type === "dexscreener" && p.source.address) sub.push((p.source.chainId || "chain") + " · " + shortAddr(p.source.address));
   if (p.currency !== S.settings.base) sub.push(p.currency);
 
-  var row = h("tr", {}, [
+  var closedNow = isClosed(p), rq = fxRate(p.currency);
+  var realisedBase = rq === null ? null : r.realised * rq;
+  var row = h("tr", { class: closedNow ? "closedrow" : null }, [
     h("td", {}, h("div", { class: "name" }, [
       h("b", {}, [
         h("button", {
@@ -4090,10 +4103,12 @@ function positionRows(body, p) {
       r.anyOpen && weightOf(r.valueBase) ? h("div", { class: "muted", style: "font-size:11.5px", text: weightOf(r.valueBase) + " of portfolio" +
         (hasTarget(p) ? " \u00b7 target " + fmtPct(p.target) : "") }) : null
     ]),
-    h("td", { class: cls(r.gainBase) }, [
-      r.gainBase === null ? "—" : signed(r.gainBase),
-      r.pctGain === null ? null : h("div", { class: "muted", style: "font-size:11.5px", text: pct(r.pctGain) })
-    ]),
+    closedNow
+      ? h("td", { class: cls(realisedBase) }, [realisedBase === null ? "—" : signed(realisedBase), h("div", { class: "muted", style: "font-size:11.5px", text: "realised" })])
+      : h("td", { class: cls(r.gainBase) }, [
+          r.gainBase === null ? "—" : signed(r.gainBase),
+          r.pctGain === null ? null : h("div", { class: "muted", style: "font-size:11.5px", text: pct(r.pctGain) })
+        ]),
     h("td", { class: "nowrap" }, [
       h("button", { class: "btn sm quiet", text: open ? "Hide" : "Lots", onclick: function () { UI.expanded[p.id] = !open; render(); } }),
       h("button", { class: "btn sm quiet", text: "Edit", onclick: function () { editPosition(p); } })
