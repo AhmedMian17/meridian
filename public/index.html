@@ -470,6 +470,31 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .tgteditrow input{width:84px; text-align:right}
 .tgtfoot{margin-top:10px; font-size:13px}
 .tgtadd{margin-top:14px; padding-top:12px; border-top:1px solid var(--line)}
+.tgtprev{margin-top:8px; font-size:12px; color:var(--ink-2)}
+.tgthdr{flex-wrap:wrap; gap:8px}
+.trings{display:flex; flex-direction:column; gap:16px}
+.trpair{display:flex; justify-content:center; gap:40px; flex-wrap:wrap}
+.tring{display:flex; flex-direction:column; align-items:center; gap:6px}
+.trtitle{font-size:12.5px; font-weight:600; color:var(--ink-2)}
+.trsvg svg{width:190px; height:190px; display:block}
+.trings .slice{transition:opacity .12s ease}
+.trings[data-hover] .slice{opacity:.25}
+.trings[data-hover] .slice.on{opacity:1}
+.trlegend{display:flex; flex-direction:column}
+.trrow{display:grid; grid-template-columns:12px minmax(0,1fr) 64px 64px 84px; gap:10px; align-items:center; padding:7px 4px; border-bottom:1px dotted var(--line); font-size:13px; transition:opacity .12s ease}
+.trrow:last-child{border-bottom:0}
+.trrow.trhead{font-size:11.5px; color:var(--ink-3); border-bottom:1px solid var(--line); padding-top:0}
+.trrow .sw{width:10px; height:10px}
+.trrow .nm{display:flex; flex-direction:column; min-width:0}
+.trrow .nm b{font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.trrow .nm small{color:var(--ink-3); font-size:11.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.trrow .num{text-align:right; font-variant-numeric:tabular-nums}
+.trrow .drift{color:var(--ink-2)}
+.trrow .drift.over::before{content:"\25B2 "; font-size:9px}
+.trrow .drift.under::before{content:"\25BC "; font-size:9px}
+.trings[data-hover] .trrow{opacity:.45}
+.trings[data-hover] .trrow.on, .trings[data-hover] .trrow.trhead{opacity:1}
+@media (max-width:720px){ .trpair{gap:16px} .trsvg svg{width:150px; height:150px} .trrow{grid-template-columns:12px minmax(0,1fr) 54px 54px 72px; gap:6px} }
 .tagbar{position:relative; z-index:4; overflow:visible}
 .tagdd{position:relative}
 .tagddpanel{position:absolute; top:calc(100% + 6px); left:0; z-index:20; width:260px; max-height:360px; overflow:auto; background:var(--surface);
@@ -3634,58 +3659,273 @@ function unitsFor(p, amountBase) {
   var u = Math.abs(amountBase) / (p.price.value * r);
   return u >= 10 ? Math.round(u) : Math.round(u * 100) / 100;
 }
+/* ---------- tag (sector) targets ----------
+   One rule, the same one the Tags filter uses: your tag targets are in an order, and each holding
+   counts once, in full, under the first of them it has. Holdings with none of them sit in
+   "Everything else". So every holding is in exactly one row and the rows add up to the whole. */
+function tagPlan() {
+  var list = Array.isArray(S.portfolio.tagTargets) ? S.portfolio.tagTargets : [];
+  var live = {}; allTags().forEach(function (t) { live[t.toLowerCase()] = t; });
+  var seen = {};
+  return list.filter(function (x) {
+    var k = x && x.tag && String(x.tag).toLowerCase();
+    if (!k || seen[k] || !live[k] || !(typeof x.target === "number" && x.target >= 0)) return false;
+    seen[k] = 1; return true;
+  }).map(function (x) { return { tag: live[String(x.tag).toLowerCase()], target: x.target }; });
+}
+function numOrNull(v) { return typeof v === "number" && isFinite(v) && v >= 0 ? v : null; }
+function tagTargetData() {
+  var plan = tagPlan(), restT = numOrNull(S.portfolio.tagRestTarget), cashT = numOrNull(S.portfolio.tagCashTarget);
+  var rows = plan.map(function (x, i) { return { key: "tag:" + x.tag.toLowerCase(), label: x.tag, value: 0, target: x.target, members: [], order: i }; });
+  var rest = { key: "_rest", label: "Everything else", value: 0, target: restT, members: [], rest: true };
+  var total = 0, overlaps = [];
+  S.portfolio.positions.forEach(function (p) {
+    var r = positionRoll(p);
+    if (!r.anyOpen || r.valueBase === null || !(r.valueBase > 0)) return;
+    total += r.valueBase;
+    var mine = {}; tagsOf(p).forEach(function (t) { mine[t.toLowerCase()] = 1; });
+    var hits = plan.filter(function (x) { return mine[x.tag.toLowerCase()]; });
+    var row = hits.length ? rows[plan.indexOf(hits[0])] : rest;
+    row.value += r.valueBase;
+    row.members.push({ name: p.symbol || p.name || "—", value: r.valueBase });
+    if (hits.length > 1) overlaps.push({ name: p.symbol || p.name || "—", under: hits[0].tag, also: hits.slice(1).map(function (x) { return x.tag; }) });
+  });
+  var cash = Math.max(0, cashTotals().cash);
+  var out = rows.slice();
+  if (rest.value > 0 || rest.target !== null) out.push(rest);
+  if (cash > 0 || cashT !== null) { total += cash; out.push({ key: "_cash", label: "Cash", sub: "at brokers", value: cash, target: cashT, cash: true }); }
+  var targetSum = 0, withTarget = 0;
+  out.forEach(function (r) {
+    r.actual = total ? (r.value / total) * 100 : 0;
+    if (r.members) {
+      r.members.sort(function (a, b) { return b.value - a.value; });
+      r.sub = r.members.length ? r.members.map(function (m) { return m.name; }).slice(0, 4).join(", ") + (r.members.length > 4 ? " +" + (r.members.length - 4) : "") : "no holdings yet";
+    }
+    if (r.target !== null) { targetSum += r.target; withTarget++; r.diff = r.actual - r.target; r.trade = (r.target / 100) * total - r.value; }
+  });
+  return { rows: out, total: total, targetSum: targetSum, withTarget: withTarget, overlaps: overlaps, mode: "tag" };
+}
+
+/* ---------- the panel: Holdings | Tags, Table | Pie ---------- */
+function tgtPref(name, dflt) {
+  if (UI[name]) return UI[name];
+  try { UI[name] = localStorage.getItem("meridian-ui:" + name) || dflt; } catch (e) { UI[name] = dflt; }
+  return UI[name];
+}
+function setTgtPref(name, v) { UI[name] = v; try { localStorage.setItem("meridian-ui:" + name, v); } catch (e) {} render(); }
+function segChips(opts, value, onPick, label) {
+  return h("div", { class: "chips", style: "margin:0", role: "group", "aria-label": label }, opts.map(function (o) {
+    return h("button", { class: "chip", text: o.l, "aria-pressed": value === o.v ? "true" : "false", onclick: function () { onPick(o.v); } });
+  }));
+}
 function targetsPanel() {
-  var d = targetData();
-  if (!d.rows.length) return null;
-  var head = h("header", {}, [h("h2", { text: "Target vs actual" }),
-    h("button", { class: "btn sm" + (d.withTarget ? "" : " primary"), text: d.withTarget ? "Edit targets" : "Set targets", onclick: editAllocTargets })]);
+  var tab = tgtPref("tgtTab", "holding"), view = tgtPref("tgtView", "table");
+  var hasTags = allTags().length > 0;
+  if (!hasTags) tab = "holding";
+  var d = tab === "tag" ? tagTargetData() : targetData();
+  if (!targetData().rows.length) return null;
+  var head = h("header", { class: "tgthdr" }, [h("h2", { text: "Target vs actual" }),
+    h("div", { class: "mrow", style: "gap:8px;flex-wrap:wrap;justify-content:flex-end" }, [
+      hasTags ? segChips([{ v: "holding", l: "Holdings" }, { v: "tag", l: "Tags" }], tab, function (v) { setTgtPref("tgtTab", v); }, "Plan by") : null,
+      d.withTarget ? segChips([{ v: "table", l: "Table" }, { v: "pie", l: "Pie" }], view, function (v) { setTgtPref("tgtView", v); }, "View") : null,
+      h("button", { class: "btn sm" + (d.withTarget ? "" : " primary"), text: d.withTarget ? "Edit targets" : "Set targets",
+        onclick: tab === "tag" ? editTagTargets : editAllocTargets })
+    ])]);
   if (!d.withTarget) {
-    return h("section", { class: "panel" }, [head, h("div", { class: "body" }, h("p", { class: "muted", style: "font-size:13px", text:
-      "Plan what share of your portfolio each holding should be, then see how far each one has drifted and what it would take to get back." }))]);
+    return h("section", { class: "panel" }, [head, h("div", { class: "body" }, h("p", { class: "muted", style: "font-size:13px", text: tab === "tag"
+      ? "Plan what share of your portfolio each tag (sector, theme, strategy) should be. Each holding counts once, under the first of your tag targets it has, so everything adds up."
+      : "Plan what share of your portfolio each holding should be, then see how far each one has drifted and what it would take to get back." }))]);
   }
+  var body = view === "pie" ? targetRings(d) : targetTable(d);
+  var notes = [];
+  var gap = 100 - d.targetSum;
+  if (Math.abs(gap) >= 0.05) notes.push(gap > 0 ? "Your targets add up to " + fmtPct(d.targetSum) + ", leaving " + fmtPct(gap) + " unplanned." :
+    "Your targets add up to " + fmtPct(d.targetSum) + ", " + fmtPct(-gap) + " more than the whole portfolio.");
+  if (d.mode === "tag") {
+    if (d.overlaps.length) {
+      var o0 = d.overlaps[0];
+      notes.push(o0.name + " is tagged " + [o0.under].concat(o0.also).join(" and ") + ", so it counts in full under " + o0.under + ", the first of those in your list" +
+        (d.overlaps.length > 1 ? " (" + plural(d.overlaps.length - 1, "other holding") + " likewise)" : "") + ".");
+    }
+    notes.push("Each holding counts once, under the first of your tag targets it has; holdings with none of them are in Everything else.");
+  } else {
+    var noT = d.rows.filter(function (r) { return r.target === null; });
+    if (noT.length) notes.push(plural(noT.length, "holding") + " without a target " + (noT.length === 1 ? "isn't" : "aren't") + " compared.");
+  }
+  notes.push("Amounts are what each row needs on its own to reach its target, at today's value of " + money(d.total) + ". Always the whole portfolio; the tag filter doesn't apply.");
+  return h("section", { class: "panel" }, [head, h("div", { class: "body" }, [
+    body,
+    view === "pie" ? null : h("div", { class: "tgtlegend" }, [h("span", {}, [h("i", { class: "act" }), "Actual"]), h("span", {}, [h("i", { class: "mark" }), "Target"]),
+      h("span", { class: "muted", text: "Rows 2 or more points off target are highlighted." })]),
+    h("p", { class: "muted", style: "font-size:12px;margin-top:8px", text: notes.join(" ") })
+  ])]);
+}
+function driftText(r) {
+  var on = r.target !== null && Math.abs(r.diff) < 0.25;
+  return { on: on, text: r.target === null ? "—" : on ? "on target" : (r.diff > 0 ? "+" : "−") + fmtPct(Math.abs(r.diff)).replace("%", " pts") };
+}
+function targetTable(d) {
   var max = 0;
   d.rows.forEach(function (r) { max = Math.max(max, r.actual, r.target || 0); });
   max = max ? Math.ceil(max / 5) * 5 : 100;
-  var on = function (r) { return r.target !== null && Math.abs(r.diff) < 0.25; };
-
   var tbl = h("div", { class: "tgt" }, [
-    h("div", { class: "tgtrow tgthead" }, [h("span", { text: "Holding" }), h("span", { class: "barcol", text: "Actual \u2014 target marked" }),
+    h("div", { class: "tgtrow tgthead" }, [h("span", { text: d.mode === "tag" ? "Tag" : "Holding" }), h("span", { class: "barcol", text: "Actual — target marked" }),
       h("span", { class: "num", text: "Actual" }), h("span", { class: "num", text: "Target" }), h("span", { class: "num", text: "Drift" }), h("span", { class: "num", text: "To rebalance" })])
   ]);
   d.rows.forEach(function (r) {
-    var drift = r.target === null ? "\u2014" : on(r) ? "on target" : (r.diff > 0 ? "+" : "\u2212") + fmtPct(Math.abs(r.diff)).replace("%", " pts");
-    var units = r.target !== null && !on(r) ? unitsFor(r.p, r.trade) : null;
+    var dt = driftText(r);
+    var units = d.mode !== "tag" && r.target !== null && !dt.on ? unitsFor(r.p, r.trade) : null;
     var act = r.target === null ? h("span", { class: "muted", text: "no target" })
-      : on(r) ? h("span", { class: "muted", text: "\u2014" })
+      : dt.on ? h("span", { class: "muted", text: "—" })
       : h("span", {}, [(r.trade > 0 ? "Buy " : "Sell ") + money(Math.abs(r.trade)),
-          units !== null ? h("small", { class: "muted", style: "display:block;font-size:11px", text: "\u2248 " + num(units, 2) + (r.p.kind === "stock" ? (units === 1 ? " share" : " shares") : " units") }) : null]);
+          units !== null ? h("small", { class: "muted", style: "display:block;font-size:11px", text: "≈ " + num(units, 2) + (r.p.kind === "stock" ? (units === 1 ? " share" : " shares") : " units") }) : null]);
     tbl.appendChild(h("div", { class: "tgtrow" + (r.target !== null && Math.abs(r.diff) >= 2 ? " off" : "") }, [
-      h("span", { class: "nm" }, [h("b", { text: r.label }), r.unpriced ? h("small", { text: "no price yet" }) : r.sub ? h("small", { text: r.sub }) : null]),
+      h("span", { class: "nm" }, [h("b", { text: r.label }), r.unpriced ? h("small", { text: "no price yet" }) : r.sub ? h("small", { text: r.sub, title: r.members ? r.members.map(function (m) { return m.name + " " + money(m.value); }).join(", ") : null }) : null]),
       h("span", { class: "barcol" }, h("span", { class: "tbar", title: r.label + ": " + fmtPct(r.actual) + " now" + (r.target !== null ? ", target " + fmtPct(r.target) : "") }, [
         h("i", { class: "act", style: "width:" + Math.min(100, (r.actual / max) * 100).toFixed(2) + "%" }),
         r.target !== null ? h("i", { class: "mark", style: "left:" + Math.min(100, (r.target / max) * 100).toFixed(2) + "%" }) : null
       ])),
       h("span", { class: "num", text: fmtPct(r.actual) }),
-      h("span", { class: "num" + (r.target === null ? " muted" : ""), text: r.target === null ? "\u2014" : fmtPct(r.target) }),
-      h("span", { class: "num drift" + (r.target !== null && !on(r) ? (r.diff > 0 ? " over" : " under") : ""), text: drift }),
+      h("span", { class: "num" + (r.target === null ? " muted" : ""), text: r.target === null ? "—" : fmtPct(r.target) }),
+      h("span", { class: "num drift" + (r.target !== null && !dt.on ? (r.diff > 0 ? " over" : " under") : ""), text: dt.text }),
       h("span", { class: "num", style: "white-space:nowrap" }, act)
     ]));
   });
+  return tbl;
+}
+/**
+ * Actual and Target as two rings. Each row keeps one colour in both (validated categorical slots,
+ * in fixed order); beyond seven, the smallest fold into Other. Unplanned target share is a pale band.
+ */
+var TGT_SLOTS = 7;
+function targetRings(d) {
+  var rows = d.rows.slice().sort(function (a, b) { return Math.max(b.actual, b.target || 0) - Math.max(a.actual, a.target || 0); });
+  var shown = rows.slice(0, rows.length > TGT_SLOTS + 1 ? TGT_SLOTS : rows.length), folded = rows.slice(shown.length);
+  var ents = shown.map(function (r, i) { return { key: r.key, label: r.label, actual: r.actual, target: r.target || 0, hasT: r.target !== null, colour: "var(--nw" + (i + 1) + ")", r: r }; });
+  if (folded.length) ents.push({ key: "_other", label: "Other (" + folded.length + ")", other: true, colour: "var(--ink-3)",
+    actual: folded.reduce(function (a, r) { return a + r.actual; }, 0), target: folded.reduce(function (a, r) { return a + (r.target || 0); }, 0),
+    hasT: folded.some(function (r) { return r.target !== null; }), sub: folded.map(function (r) { return r.label; }).join(", ") });
+  var tSum = ents.reduce(function (a, e) { return a + e.target; }, 0);
+  function ring(which, title) {
+    var R = 70, W = 30, C = 2 * Math.PI * R, acc = 0, o = '<svg viewBox="0 0 200 200" role="img" aria-label="' + title + '">';
+    o += '<circle cx="100" cy="100" r="' + R + '" fill="none" stroke="var(--sunken)" stroke-width="' + W + '"/>';
+    var scale = which === "target" && tSum > 100 ? 100 / tSum : 1;
+    var list = ents.map(function (e) { return { e: e, v: (which === "target" ? e.target : e.actual) * scale }; }).filter(function (x) { return x.v > 0; });
+    var n = list.length + (which === "target" && tSum < 99.95 ? 1 : 0);
+    list.forEach(function (x) {
+      var len = (x.v / 100) * C, gap = n > 1 && len > 3 ? 1.6 : 0;
+      o += '<circle class="slice" data-key="' + esc(x.e.key) + '" cx="100" cy="100" r="' + R + '" fill="none" stroke="' + x.e.colour + '" stroke-width="' + W +
+        '" stroke-dasharray="' + Math.max(0.01, len - gap).toFixed(3) + " " + (C - len + gap).toFixed(3) + '" stroke-dashoffset="' + (-acc).toFixed(3) +
+        '" transform="rotate(-90 100 100)"><title>' + esc(x.e.label) + " · " + fmtPct(which === "target" ? x.e.target : x.e.actual) + "</title></circle>";
+      acc += len;
+    });
+    // the unplanned part of the target ring stays the empty track, so it reads as "not decided"
+    o += '<text x="100" y="99" text-anchor="middle" class="donut-total">' + (which === "target" ? fmtPct(Math.min(tSum, 999)) : money(d.total).replace(/\.\d+$/, "")) + "</text>";
+    o += '<text x="100" y="118" text-anchor="middle" class="donut-label">' + (which === "target" ? "planned" : "today") + "</text>";
+    return h("div", { class: "tring" }, [h("div", { class: "trtitle", text: title }), svgEl(o + "</svg>", "trsvg")]);
+  }
+  var wrap = h("div", { class: "trings nwviz" }, [h("div", { class: "trpair" }, [ring("actual", "Actual"), ring("target", "Target")])]);
+  var legend = h("div", { class: "trlegend" }, [h("div", { class: "trrow trhead" }, [h("span"), h("span", { text: d.mode === "tag" ? "Tag" : "Holding" }),
+    h("span", { class: "num", text: "Actual" }), h("span", { class: "num", text: "Target" }), h("span", { class: "num", text: "Drift" })])]);
+  ents.forEach(function (e) {
+    var dt = e.hasT ? driftText({ target: e.target, diff: e.actual - e.target }) : { text: "—", on: false };
+    legend.appendChild(h("div", { class: "trrow", "data-key": e.key }, [
+      h("i", { class: "sw", style: "background:" + e.colour }),
+      h("span", { class: "nm" }, [h("b", { text: e.label }), e.sub || (e.r && e.r.sub) ? h("small", { text: e.sub || e.r.sub }) : null]),
+      h("span", { class: "num", text: fmtPct(e.actual) }),
+      h("span", { class: "num" + (e.hasT ? "" : " muted"), text: e.hasT ? fmtPct(e.target) : "—" }),
+      h("span", { class: "num drift" + (e.hasT && !dt.on ? (e.actual - e.target > 0 ? " over" : " under") : ""), text: dt.text })
+    ]));
+  });
+  if (tSum < 99.95) legend.appendChild(h("div", { class: "trrow" }, [h("i", { class: "sw", style: "background:var(--sunken);box-shadow:inset 0 0 0 1px var(--line-2)" }),
+    h("span", { class: "nm" }, h("b", { style: "font-weight:500", text: "Not planned yet" })), h("span", { class: "num muted", text: "" }),
+    h("span", { class: "num", text: fmtPct(100 - tSum) }), h("span")]));
+  if (tSum > 100.05) legend.appendChild(h("p", { class: "muted", style: "font-size:12px;margin-top:6px", text: "Targets add up to " + fmtPct(tSum) + ", so the target ring is scaled down to fit." }));
+  wrap.appendChild(legend);
+  // hovering a row or slice lights it up in both rings
+  wrap.querySelectorAll("[data-key]").forEach(function (el) {
+    el.addEventListener("mouseenter", function () {
+      var k = el.getAttribute("data-key");
+      wrap.setAttribute("data-hover", "1");
+      wrap.querySelectorAll("[data-key]").forEach(function (o) { o.classList.toggle("on", o.getAttribute("data-key") === k); });
+    });
+    el.addEventListener("mouseleave", function () { wrap.removeAttribute("data-hover"); wrap.querySelectorAll(".on").forEach(function (o) { o.classList.remove("on"); }); });
+  });
+  return wrap;
+}
 
-  var notes = [];
-  var gap = 100 - d.targetSum;
-  if (Math.abs(gap) >= 0.05) notes.push(gap > 0 ? "Your targets add up to " + fmtPct(d.targetSum) + ", leaving " + fmtPct(gap) + " unplanned." :
-    "Your targets add up to " + fmtPct(d.targetSum) + ", " + fmtPct(-gap) + " more than the whole portfolio.");
-  var noT = d.rows.filter(function (r) { return r.target === null; });
-  if (noT.length) notes.push(plural(noT.length, "holding") + " without a target " + (noT.length === 1 ? "isn't" : "aren't") + " compared.");
-  notes.push("Buy and sell amounts are what each holding needs on its own to reach its target, at today's value of " + money(d.total) +
-    ". Your tag filter doesn't apply here; this is always the whole portfolio.");
-  return h("section", { class: "panel" }, [head, h("div", { class: "body" }, [
-    tbl,
-    h("div", { class: "tgtlegend" }, [h("span", {}, [h("i", { class: "act" }), "Actual"]), h("span", {}, [h("i", { class: "mark" }), "Target"]),
-      h("span", { class: "muted", text: "Holdings 2 or more points off target are highlighted." })]),
-    h("p", { class: "muted", style: "font-size:12px;margin-top:8px", text: notes.join(" ") })
-  ])]);
+/** Plan by tag: every tag you use, in the order that decides where multi-tag holdings count. */
+function editTagTargets() {
+  var plan = tagPlan();
+  var order = plan.map(function (x) { return x.tag; }).concat(allTags().filter(function (t) { return !plan.some(function (x) { return x.tag === t; }); }));
+  var draft = {};
+  plan.forEach(function (x) { draft[x.tag] = String(x.target); });
+  order.forEach(function (t) { if (!(t in draft)) draft[t] = ""; });
+  var restT = numOrNull(S.portfolio.tagRestTarget), cashT = numOrNull(S.portfolio.tagCashTarget);
+  draft._rest = restT === null ? "" : String(restT);
+  var hasCash = cashTotals().cash > 0 || cashT !== null;
+  if (hasCash) draft._cash = cashT === null ? "" : String(cashT);
+  var counts = {};
+  S.portfolio.positions.forEach(function (p) { if (!positionRoll(p).anyOpen) return; tagsOf(p).forEach(function (t) { counts[t.toLowerCase()] = (counts[t.toLowerCase()] || 0) + 1; }); });
+  var listWrap = h("div"), foot = h("div", { class: "tgtfoot" }), preview = h("div", { class: "tgtprev" });
+
+  function planned() { return order.filter(function (t) { var v = parseFloat(draft[t]); return draft[t] !== "" && isFinite(v); }); }
+  function sum() { var t = 0; Object.keys(draft).forEach(function (k) { var v = parseFloat(draft[k]); if (draft[k] !== "" && isFinite(v)) t += v; }); return t; }
+  function refresh() {
+    var t = sum(), gap = 100 - t;
+    foot.innerHTML = "";
+    add(foot, [h("b", { text: "Total " + fmtPct(t) }),
+      h("span", { class: Math.abs(gap) < 0.05 ? "up" : "muted", text: Math.abs(gap) < 0.05 ? " ✓ adds up to 100%" : gap > 0 ? " · " + fmtPct(gap) + " left to plan" : " · " + fmtPct(-gap) + " over 100%" })]);
+    // where each multi-tag holding would land with this order
+    var pl = planned(), lines = [];
+    S.portfolio.positions.forEach(function (p) {
+      if (!positionRoll(p).anyOpen) return;
+      var mine = {}; tagsOf(p).forEach(function (x) { mine[x.toLowerCase()] = 1; });
+      var hits = pl.filter(function (x) { return mine[x.toLowerCase()]; });
+      if (hits.length > 1) lines.push((p.symbol || p.name) + " → " + hits[0] + " (also " + hits.slice(1).join(", ") + ")");
+    });
+    preview.textContent = lines.length ? "Holdings in more than one planned tag count under the first: " + lines.slice(0, 5).join("; ") + (lines.length > 5 ? "; +" + (lines.length - 5) + " more" : "") + "." : "";
+  }
+  function build() {
+    listWrap.innerHTML = "";
+    var pl = planned();
+    var rows = order.map(function (t) {
+      var isPl = pl.indexOf(t) >= 0, at = pl.indexOf(t);
+      return h("label", { class: "tgteditrow" }, [
+        h("span", { class: "nm" }, [h("b", { text: t }), h("small", { text: plural(counts[t.toLowerCase()] || 0, "holding") + (isPl && pl.length > 1 ? " · #" + (at + 1) + " in order" : "") })]),
+        h("span", { class: "pin" }, [
+          isPl && at > 0 ? h("button", { type: "button", class: "btn sm quiet", text: "↑", title: "Count multi-tag holdings under " + t + " before " + pl[at - 1],
+            onclick: function (e) { e.preventDefault(); var i = order.indexOf(t), j = order.indexOf(pl[at - 1]); order.splice(i, 1); order.splice(j, 0, t); build(); } }) : null,
+          inp({ type: "number", step: "0.1", min: "0", max: "100", inputmode: "decimal", value: draft[t], placeholder: "—",
+            oninput: function (e) { var was = planned().length; draft[t] = e.target.value; if (planned().length !== was) { build(); var el = listWrap.querySelector('[data-t="' + CSS.escape(t) + '"]'); if (el) { el.focus(); el.setSelectionRange && null; } } else refresh(); },
+            "data-t": t }),
+          h("span", { class: "muted", text: "%" })])
+      ]);
+    });
+    rows.push(h("label", { class: "tgteditrow" }, [h("span", { class: "nm" }, [h("b", { text: "Everything else" }), h("small", { text: "holdings with none of the tags above that have a target" })]),
+      h("span", { class: "pin" }, [inp({ type: "number", step: "0.1", min: "0", max: "100", value: draft._rest, placeholder: "—", oninput: function (e) { draft._rest = e.target.value; refresh(); } }), h("span", { class: "muted", text: "%" })])]));
+    if (hasCash) rows.push(h("label", { class: "tgteditrow" }, [h("span", { class: "nm" }, [h("b", { text: "Cash" }), h("small", { text: "at brokers" })]),
+      h("span", { class: "pin" }, [inp({ type: "number", step: "0.1", min: "0", max: "100", value: draft._cash, placeholder: "—", oninput: function (e) { draft._cash = e.target.value; refresh(); } }), h("span", { class: "muted", text: "%" })])]));
+    listWrap.appendChild(h("div", { class: "tgtedit" }, rows));
+    refresh();
+  }
+  build();
+  openDialog({
+    title: "Targets by tag",
+    body: h("div", {}, [
+      h("p", { class: "muted", style: "font-size:12.5px;margin-bottom:10px", text: "Share of your whole portfolio each tag should be. A holding with several of these tags counts once, in full, under the first one in this list; use ↑ to change which comes first." }),
+      listWrap, foot, preview
+    ]),
+    left: h("button", { type: "button", class: "btn sm quiet", text: "Clear all", onclick: function () { Object.keys(draft).forEach(function (k) { draft[k] = ""; }); build(); } }),
+    actions: [{ label: "Save targets", primary: true, onClick: function () {
+      var bad = Object.keys(draft).some(function (k) { var v = draft[k]; return v !== "" && !(parseFloat(v) >= 0 && parseFloat(v) <= 100); });
+      if (bad) { toast("Targets need to be between 0 and 100."); return false; }
+      S.portfolio.tagTargets = planned().map(function (t) { return { tag: t, target: Math.round(parseFloat(draft[t]) * 100) / 100 }; });
+      if (draft._rest === "") delete S.portfolio.tagRestTarget; else S.portfolio.tagRestTarget = Math.round(parseFloat(draft._rest) * 100) / 100;
+      if (hasCash) { if (draft._cash === "") delete S.portfolio.tagCashTarget; else S.portfolio.tagCashTarget = Math.round(parseFloat(draft._cash) * 100) / 100; }
+      save("portfolio"); render();
+    } }]
+  });
 }
 
 var PLAN_MARKETS = [
