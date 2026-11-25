@@ -367,6 +367,64 @@ dialog footer .right{display:flex; gap:8px; margin-left:auto}
 .bdpie[data-hover] .allocrow{opacity:.4}
 .bdpie[data-hover] .allocrow.on{opacity:1}
 
+
+/* ---------- trading ---------- */
+.dttabs{margin:-4px 0 14px}
+.dtrange{display:flex; align-items:center; gap:10px; margin:-4px 0 14px; flex-wrap:wrap}
+.dtacct{max-width:200px}
+.dtcalpanel{overflow:hidden}
+.dtcalhead{display:flex; align-items:center; gap:6px; padding:10px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap}
+.dtcalhead h2{font-size:15px; margin:0 6px; min-width:130px; text-align:center}
+.dtmonthnet{font-size:13px; color:var(--ink-2)}
+.dtmonthnet b{font-size:15px; font-variant-numeric:tabular-nums}
+.dtmonthnet small{color:var(--ink-3)}
+.dtcal{display:grid; grid-template-columns:repeat(7, minmax(0,1fr)) minmax(0,1.05fr)}
+.dthd{font-size:12px; color:var(--ink-3); text-align:center; padding:8px 0; border-bottom:1px solid var(--line); border-right:1px solid var(--line)}
+.dthd.wk{color:var(--ink); font-weight:600; border-right:0}
+.dtday{position:relative; min-height:92px; border:0; border-right:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--surface);
+  padding:8px 10px; text-align:left; display:flex; flex-direction:column; justify-content:flex-end; gap:1px; cursor:pointer; font:inherit; color:inherit}
+.dtday:hover{box-shadow:inset 0 0 0 1px var(--line-2)}
+.dtday:focus-visible{outline:2px solid var(--brass); outline-offset:-2px}
+.dtday .dn{position:absolute; top:7px; left:10px; font-size:12px; color:var(--ink-2)}
+.dtday.out{background:var(--surface-2)}
+.dtday.out .dn, .dtday.out .pl, .dtday.out .ct{opacity:.45}
+.dtday.today{box-shadow:inset 0 0 0 2px var(--brass)}
+.dtday.up{background:color-mix(in srgb, var(--up) var(--dtmix, 14%), var(--surface))}
+.dtday.down{background:color-mix(in srgb, var(--down) var(--dtmix, 14%), var(--surface))}
+.dtday.out.up, .dtday.out.down{background:var(--surface-2)}
+.dtday .pl{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif; font-weight:700; font-size:17px; font-variant-numeric:tabular-nums}
+.dtday.up .pl{color:var(--up)} .dtday.down .pl{color:var(--down)}
+.dtday .pl .short{display:none}
+.dtday .ct{font-size:11.5px; color:var(--ink-2)}
+.dtday .nt{position:absolute; right:8px; bottom:7px; font-size:11px; color:var(--ink-3)}
+.dtwk{border-bottom:1px solid var(--line); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px; min-height:92px; background:var(--surface)}
+.dtwk b{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif; font-size:16px; font-variant-numeric:tabular-nums}
+.dtwk small{font-size:11.5px; color:var(--ink-2)}
+b.up, .num.up, span.up{color:var(--up)} b.down, .num.down, span.down{color:var(--down)}
+@media (max-width:720px){
+  .dtday, .dtwk{min-height:58px; padding:5px 4px}
+  .dtday .dn{top:4px; left:5px; font-size:10.5px}
+  .dtday .pl{font-size:11.5px; letter-spacing:-.2px}
+  .dtday .pl .full{display:none} .dtday .pl .short{display:inline}
+  .dtday .ct{display:none}
+  .dtday .nt{right:3px; bottom:3px; font-size:9px}
+  .dtwk b{font-size:11.5px} .dtwk small{display:none}
+  .dthd{font-size:10.5px}
+  .dtcalhead h2{min-width:0}
+}
+.dtdaysum{font-size:15px; margin-bottom:8px}
+.dtdaysum b{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif; font-size:20px}
+.dtdaylist{border:1px solid var(--line); border-radius:6px; margin-bottom:14px; max-height:46vh; overflow:auto}
+.dttrade{display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:12px; align-items:center; padding:9px 12px; border-bottom:1px dotted var(--line)}
+.dttrade:last-child{border-bottom:0}
+.dttrade .l{display:flex; flex-direction:column; gap:2px; min-width:0}
+.dttrade .l small{font-size:12px; color:var(--ink-2)}
+.dttrade .l small.note{color:var(--ink-3); font-style:italic}
+.dttrade .v{font-weight:600; font-variant-numeric:tabular-nums}
+.dtnote{width:100%; resize:vertical}
+.dttable td.num, .dttable th.num{text-align:right}
+.dttable tr.dtrow{cursor:pointer}
+.dttable tr.dtrow:hover td{background:var(--surface-2)}
 /* ---------- allocation donut ---------- */
 .alloc{display:grid; grid-template-columns:220px minmax(0,1fr); gap:28px; align-items:center}
 .allocchart svg{width:220px; height:220px; display:block}
@@ -553,7 +611,7 @@ tr.closedrow > td b{color:var(--ink-2)}
       <button type="button" id="syncPill" class="syncpill" data-state="local">This device only</button></div>
     <nav class="nav" id="nav" aria-label="Sections"></nav>
     <div class="railfoot">
-      <span>Shortcuts 1–8</span>
+      <span>Shortcuts 1–9</span>
       <button id="themeBtn" title="Switch theme">theme</button>
     </div>
   </aside>
@@ -603,7 +661,8 @@ var S = {
   tsess: {},         // year -> { 'YYYY-MM-DD': { workoutId, splitId, done:{}, finished } }
   nutrition: { targets: { kcal: 0, protein: 0, carbs: 0, fat: 0 }, foods: [] },
   body: { weights: [] },
-  food: {}           // 'YYYY-MM' -> { days: { 'YYYY-MM-DD': [entries] } }
+  food: {},          // 'YYYY-MM' -> { days: { 'YYYY-MM-DD': [entries] } }
+  dt: {}             // 'YYYY-MM' -> { items: [day trades], notes: { 'YYYY-MM-DD': journal } }
 };
 
 var UI = {
@@ -803,6 +862,7 @@ var SHARDS = [
   { re: /^tx-(\d{4}-\d{2})$/, bag: "tx", empty: function () { return { items: [] }; } },
   { re: /^tx-(\d{4})$/, bag: "txLegacy", empty: function () { return { items: [] }; }, legacy: true },
   { re: /^food-(\d{4}-\d{2})$/, bag: "food", empty: function () { return { days: {} }; } },
+  { re: /^dt-(\d{4}-\d{2})$/, bag: "dt", empty: function () { return { items: [], notes: {} }; } },
   { re: /^hlog-(\d{4})$/, bag: "hlog", empty: function () { return { days: {} }; } },
   { re: /^tsess-(\d{4})$/, bag: "tsess", empty: function () { return { days: {} }; } }
 ];
@@ -847,6 +907,7 @@ function sliceLabel(name) {
   if ((m = /^tx-(\d{4})-(\d{2})$/.exec(name))) return "Transactions, " + MONTHS[+m[2] - 1].slice(0, 3) + " " + m[1];
   if ((m = /^tx-(\d{4})$/.exec(name))) return "Transactions " + m[1] + " (old format)";
   if ((m = /^food-(\d{4})-(\d{2})$/.exec(name))) return "Food log, " + MONTHS[+m[2] - 1].slice(0, 3) + " " + m[1];
+  if ((m = /^dt-(\d{4})-(\d{2})$/.exec(name))) return "Day trades, " + MONTHS[+m[2] - 1].slice(0, 3) + " " + m[1];
   if ((m = /^hlog-(\d{4})$/.exec(name))) return "Habit log " + m[1];
   if ((m = /^tsess-(\d{4})$/.exec(name))) return "Workout log " + m[1];
   return name;
@@ -1256,7 +1317,7 @@ function knownShards() {
   var set = {};
   Object.keys(S.settings.shards || {}).forEach(function (n) { set[n] = 1; });
   lsKeys().forEach(function (k) { if (shardOf(k) && !shardOf(k).spec.legacy) set[k] = 1; });
-  ["tx", "food", "hlog", "tsess"].forEach(function (bag) {
+  ["tx", "food", "hlog", "tsess", "dt"].forEach(function (bag) {
     Object.keys(S[bag] || {}).forEach(function (key) { set[bag + "-" + key] = 1; });
   });
   // every month and year since the board was first opened
@@ -1468,7 +1529,7 @@ async function remoteConnect(key) {
   if (d && d.now) Remote.cursor = Math.max(0, d.now - 5000);
   Store.db = RemoteDB; Store.uid = "me"; Store.kind = "remote"; Sync.disabled = false;
   var names = BASE_SLICES.slice();
-  ["tx", "food", "hlog", "tsess", "txLegacy"].forEach(function (bag) {
+  ["tx", "food", "hlog", "tsess", "dt", "txLegacy"].forEach(function (bag) {
     Object.keys(S[bag] || {}).forEach(function (k) { names.push((bag === "txLegacy" ? "tx" : bag) + "-" + k); });
   });
   names = names.filter(function (n, i) { return names.indexOf(n) === i && isKnownSlice(n); });
@@ -1529,7 +1590,7 @@ async function loadAll() {
   var cm = monthKey(today()), pm = shiftMonth(cm, -1);
   var cy = String(YEAR_NOW), ly = String(YEAR_NOW - 1);
   var names = BASE_SLICES.concat([
-    "tx-" + cm, "tx-" + pm, "food-" + cm, "food-" + pm,
+    "tx-" + cm, "tx-" + pm, "food-" + cm, "food-" + pm, "dt-" + cm, "dt-" + pm,
     "hlog-" + cy, "hlog-" + ly, "tx-" + cy, "tx-" + ly
   ]);
   // paint straight from this device, then reconcile with the account
@@ -1742,9 +1803,9 @@ function bundle(opts) {
     app: "meridian", version: 2, exportedAt: new Date().toISOString(), includesKeys: !!opts.keys,
     settings: settings, portfolio: clone(S.portfolio), networth: clone(S.networth), budget: clone(S.budget),
     habits: clone(S.habits), reminders: clone(S.reminders), training: clone(S.training),
-    nutrition: clone(S.nutrition), body: clone(S.body), tx: {}, hlog: {}, tsess: {}, food: {}
+    nutrition: clone(S.nutrition), body: clone(S.body), tx: {}, hlog: {}, tsess: {}, food: {}, dt: {}
   };
-  ["tx", "hlog", "tsess", "food"].forEach(function (bag) {
+  ["tx", "hlog", "tsess", "food", "dt"].forEach(function (bag) {
     Object.keys(S[bag] || {}).sort().forEach(function (key) {
       var name = bag + "-" + key, d = S[bag][key];
       if (d && !isEmptySlice(name, d)) b[bag][key] = clone(d);
@@ -1804,7 +1865,7 @@ async function runExport(includeKeys) {
 function everyShardName() {
   var set = {};
   knownShards().forEach(function (n) { set[n] = 1; });
-  ["tx", "hlog", "tsess", "food"].forEach(function (bag) { Object.keys(S[bag] || {}).forEach(function (k) { set[bag + "-" + k] = 1; }); });
+  ["tx", "hlog", "tsess", "food", "dt"].forEach(function (bag) { Object.keys(S[bag] || {}).forEach(function (k) { set[bag + "-" + k] = 1; }); });
   return Object.keys(set);
 }
 
@@ -1844,7 +1905,7 @@ async function applyImport(b) {
   if (!fileKeys.twelvedata && !fileKeys.finnhub) S.settings.keys = keepKeys;
   S.settings.shards = keepShards;
   // transactions: version 1 exports grouped them by year, version 2 by month
-  var incoming = { tx: {}, hlog: b.hlog || {}, tsess: b.tsess || {}, food: b.food || {} };
+  var incoming = { tx: {}, hlog: b.hlog || {}, tsess: b.tsess || {}, food: b.food || {}, dt: b.dt || {} };
   Object.keys(b.tx || {}).forEach(function (k) {
     ((b.tx[k] || {}).items || []).forEach(function (t) {
       var mk = monthKey(t.date), box = incoming.tx[mk] || (incoming.tx[mk] = { items: [] });
@@ -1857,8 +1918,8 @@ async function applyImport(b) {
     sliceSet(nm, normalize(nm, d ? clone(d) : null));
     saveSlice(nm);
   });
-  ["tx", "hlog", "tsess", "food"].forEach(function (bag) {
-    Object.keys(incoming[bag]).forEach(function (key) {
+  ["tx", "hlog", "tsess", "food", "dt"].forEach(function (bag) {
+    Object.keys(incoming[bag] || {}).forEach(function (key) {
       var nm = bag + "-" + key;
       if (!isKnownSlice(nm)) return;
       sliceSet(nm, normalize(nm, clone(incoming[bag][key])));
@@ -1942,7 +2003,8 @@ function hasRealData() {
   return !!(S.portfolio.positions.length || S.networth.accounts.length || S.habits.items.length ||
     S.reminders.items.length || S.training.splits.length || (S.body.weights || []).length ||
     Object.keys(S.tx).some(function (k) { return (S.tx[k].items || []).length; }) ||
-    Object.keys(S.food).some(function (k) { return Object.keys(S.food[k].days || {}).length; }));
+    Object.keys(S.food).some(function (k) { return Object.keys(S.food[k].days || {}).length; }) ||
+    Object.keys(S.dt || {}).some(function (k) { return (S.dt[k].items || []).length; }));
 }
 function backupReminder() {
   if (!hasRealData()) return null;
@@ -3134,9 +3196,9 @@ function timeChart(rows, opts) {
       tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw" }), h("span", { text: "Net worth" }), h("span", { text: money(n(r.total)) })]));
     } else {
       var d0 = n(r.total) - n(rows[0].total);
-      tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw", style: "background:var(--nw1)" }), h("span", { text: "Net worth" }), h("span", { text: money(n(r.total)) })]));
+      tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw", style: "background:var(--nw1)" }), h("span", { text: opts.label || "Net worth" }), h("span", { text: (opts.fmt || money)(n(r.total)) })]));
       tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw" }), h("span", { text: "Since " + fmtDate(rows[0].date, true) }),
-        h("span", { class: cls(d0), text: signed(d0) })]));
+        h("span", { class: cls(d0), text: opts.fmt ? (d0 > 0 ? "+" : "") + opts.fmt(d0) : signed(d0) })]));
     }
     var tw = tip.offsetWidth || 180;
     tip.style.left = (px + 14 + tw > box.width ? Math.max(0, px - 14 - tw) : px + 14) + "px";
@@ -7461,10 +7523,472 @@ function quickWeighIn() {
    Router + boot
    ============================================================ */
 
+/* ============================================================
+   Trading — a journal of day trades, laid out as a P&L calendar
+   One document per month (dt-YYYY-MM): { items: [trades], notes: { date: journal } }.
+   A trade: { id, date, time?, account, symbol, side, qty, entry?, exit?, ppt?, pnl, fees, setup?, note? }
+   or a day total: { id, kind: "day", date, account, pnl, fees, count, note? } for days logged as one figure.
+   Amounts are in the trading currency (USD by default), kept apart from net worth.
+   ============================================================ */
+var FUT_PPT = { MNQ: 2, NQ: 20, MES: 5, ES: 50, MYM: 0.5, YM: 5, M2K: 5, RTY: 50, MGC: 10, GC: 100, SIL: 1000, SI: 5000,
+  MCL: 100, CL: 1000, MHG: 2500, HG: 25000, ZN: 1000, ZB: 1000, M6E: 12500, "6E": 125000, MBT: 0.1, MET: 0.1, MNG: 1000, NG: 10000 };
+var FUT_KEYS = Object.keys(FUT_PPT).sort(function (a, b) { return b.length - a.length; });
+/** Dollars per point for a futures symbol, with or without its contract month (MNQZ6, MNQ 12-26, /MNQ). */
+function futPPT(sym) {
+  var s = String(sym || "").toUpperCase().replace(/^\//, "").trim();
+  for (var i = 0; i < FUT_KEYS.length; i++) {
+    var k = FUT_KEYS[i];
+    if (s === k || (s.indexOf(k) === 0 && /^[FGHJKMNQUVXZ]?\d{0,2}(\s|$|[-\s]\d)/.test(s.slice(k.length) + " "))) return FUT_PPT[k];
+  }
+  return null;
+}
+function dtCur() { return (S.settings.tradeCur || "USD").toUpperCase(); }
+function tmoney(v, dp) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  var a = Math.abs(v), d = dp !== undefined ? dp : (a >= 1000 || Math.round(a) === a ? 0 : 2);
+  var s = "$" + a.toLocaleString("en-AU", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return (v < 0 ? "-" : "") + s;
+}
+function tsigned(v) { return v > 0 ? "+" + tmoney(v) : tmoney(v); }
+function tshort(v) {
+  var a = Math.abs(v), s = a >= 10000 ? (a / 1000).toFixed(0) + "k" : a >= 1000 ? (a / 1000).toFixed(1) + "k" : String(Math.round(a));
+  return (v > 0 ? "+" : v < 0 ? "-" : "") + "$" + s;
+}
+function dtMonth(mk) { return shard("dt-" + mk); }
+function saveDt(mk) { saveSlice("dt-" + mk); }
+function dtNet(t) { return n(t.pnl) - n(t.fees); }
+function dtCount(t) { return t.kind === "day" ? Math.max(1, Math.round(n(t.count))) : 1; }
+function dtAcct() { return tgtPref("dtAcct", ""); }
+function dtPass(t) { var a = dtAcct(); return !a || t.account === a; }
+function dtMonthTrades(mk) { return (dtMonth(mk).items || []).filter(dtPass); }
+/** Every month with day trades on this board (from the shard index), oldest first. */
+function dtMonths() {
+  var set = {};
+  knownShards().forEach(function (nm) { var m = /^dt-(\d{4}-\d{2})$/.exec(nm); if (m) set[m[1]] = 1; });
+  Object.keys(S.dt || {}).forEach(function (k) { set[k] = 1; });
+  return Object.keys(set).sort();
+}
+function dtAll() {
+  var out = [];
+  dtMonths().forEach(function (mk) { (dtMonth(mk).items || []).forEach(function (t) { if (dtPass(t)) out.push(t); }); });
+  return out;
+}
+function dtAccounts() {
+  var set = {};
+  dtMonths().forEach(function (mk) { (dtMonth(mk).items || []).forEach(function (t) { if (t.account) set[t.account] = 1; }); });
+  return Object.keys(set).sort();
+}
+function dtSetups() {
+  var set = {};
+  dtMonths().forEach(function (mk) { (dtMonth(mk).items || []).forEach(function (t) { if (t.setup) set[t.setup] = 1; }); });
+  return Object.keys(set).sort();
+}
+function dtSymbols() {
+  var set = {};
+  dtMonths().forEach(function (mk) { (dtMonth(mk).items || []).forEach(function (t) { if (t.symbol) set[t.symbol] = 1; }); });
+  ["MNQ", "MES", "MGC", "NQ", "ES", "GC", "MYM", "M2K", "MCL"].forEach(function (s2) { set[s2] = 1; });
+  return Object.keys(set).sort();
+}
+/** Per-day totals for a list of trades. */
+function dtByDay(list) {
+  var days = {};
+  list.forEach(function (t) {
+    var d = days[t.date] || (days[t.date] = { date: t.date, net: 0, count: 0, trades: [] });
+    d.net += dtNet(t); d.count += dtCount(t); d.trades.push(t);
+  });
+  return days;
+}
+function dtWeekStart(dateStr) { var d = parseISO(dateStr); var dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); return iso(d); }
+
+function viewTrading() {
+  var out = frag([]);
+  var mk = UI.dtMonth || monthKey(today());
+  var tab = tgtPref("dtTab", "calendar");
+  var accts = dtAccounts();
+  if (dtAcct() && accts.indexOf(dtAcct()) < 0) { UI.dtAcct = ""; try { localStorage.setItem("meridian-ui:dtAcct", ""); } catch (e) {} }
+  var acctSel = sel([{ v: "", l: "All accounts" }].concat(accts.map(function (a) { return { v: a, l: a }; })), dtAcct(),
+    { class: "dtacct", onchange: function (e) { setTgtPref("dtAcct", e.target.value); } });
+  add(out, h("div", { class: "viewhead" }, [
+    h("div", {}, [h("h1", { text: "Trading" }), h("div", { class: "sub", text: "Day trades · amounts in " + dtCur() + " · kept apart from net worth" })]),
+    h("div", { class: "rowacts" }, [
+      accts.length ? acctSel : null,
+      h("button", { class: "btn primary", text: "Add trade", onclick: function () { editTrade(null, UI.dtDay || (monthKey(today()) === mk ? today() : mk + "-01")); } })
+    ])
+  ]));
+  add(out, h("div", { class: "dttabs" }, segChips([{ v: "calendar", l: "Calendar" }, { v: "trades", l: "Trades" }, { v: "stats", l: "Stats" }, { v: "setup", l: "By setup" }],
+    tab, function (v) { setTgtPref("dtTab", v); }, "Trading view")));
+
+  if (tab === "calendar") { add(out, dtCalendar(mk)); return out; }
+
+  // the other tabs: this month (following the calendar) or everything
+  var range = tgtPref("dtRange", "month");
+  var list = range === "all" ? dtAll() : dtMonthTrades(mk);
+  var nav = h("div", { class: "dtrange" }, [
+    segChips([{ v: "month", l: MONTHS[+mk.slice(5) - 1] + " " + mk.slice(0, 4) }, { v: "all", l: "All time" }], range, function (v) { setTgtPref("dtRange", v); }, "Period"),
+    range === "month" ? h("span", { class: "mrow", style: "gap:2px" }, [
+      h("button", { class: "btn sm quiet", text: "‹", title: "Previous month", onclick: function () { UI.dtMonth = shiftMonth(mk, -1); render(); } }),
+      h("button", { class: "btn sm quiet", text: "›", title: "Next month", onclick: function () { UI.dtMonth = shiftMonth(mk, 1); render(); } })]) : null
+  ]);
+  add(out, nav);
+  if (!list.length) {
+    add(out, h("section", { class: "panel" }, emptyState("No trades " + (range === "all" ? "yet" : "this month"),
+      "Add trades one at a time, or a day's total if that's how you track them.",
+      h("button", { class: "btn primary", text: "Add trade", onclick: function () { editTrade(null, today()); } }))));
+    return out;
+  }
+  if (tab === "trades") add(out, dtTradesPanel(list));
+  else if (tab === "stats") add(out, dtStatsPanel(list, range));
+  else add(out, dtSetupPanel(list));
+  return out;
+}
+
+/* ---------- the calendar ---------- */
+function dtCalendar(mk) {
+  var list = dtMonthTrades(mk), days = dtByDay(list);
+  var notes = dtMonth(mk).notes || {};
+  var monthNet = 0, monthCount = 0, maxAbs = 0;
+  Object.keys(days).forEach(function (d) { monthNet += days[d].net; monthCount += days[d].count; maxAbs = Math.max(maxAbs, Math.abs(days[d].net)); });
+  var first = mk + "-01", start = dtWeekStart(first);
+  var lastDay = new Date(+mk.slice(0, 4), +mk.slice(5), 0).getDate(), end = mk + "-" + String(lastDay).padStart(2, "0");
+  // neighbouring months show too, so load them
+  var prevMk = shiftMonth(mk, -1), nextMk = shiftMonth(mk, 1);
+  var around = dtByDay(dtMonthTrades(prevMk).concat(dtMonthTrades(nextMk)));
+  var aroundNotes = Object.assign({}, dtMonth(prevMk).notes || {}, dtMonth(nextMk).notes || {});
+
+  var grid = h("div", { class: "dtcal" });
+  DAYS_S.concat(["Week"]).forEach(function (d, i) { grid.appendChild(h("div", { class: "dthd" + (i === 7 ? " wk" : ""), text: d })); });
+  var cur = start, wk = null;
+  while (cur <= end || (parseISO(cur).getDay() + 6) % 7 !== 0) {
+    var inMonth = cur.slice(0, 7) === mk;
+    var d = inMonth ? days[cur] : around[cur];
+    var hasNote = !!((inMonth ? notes : aroundNotes)[cur]) || (d && d.trades.some(function (t) { return t.note; }));
+    if ((parseISO(cur).getDay() + 6) % 7 === 0) wk = { net: 0, count: 0, any: false };
+    if (d && inMonth) { wk.net += d.net; wk.count += d.count; wk.any = true; }
+    var tone = d ? (d.net > 0 ? "up" : d.net < 0 ? "down" : "flat") : "";
+    var strength = d && maxAbs ? 0.10 + 0.28 * Math.min(1, Math.abs(d.net) / maxAbs) : 0;
+    var cell = h("button", {
+      type: "button", class: "dtday" + (inMonth ? "" : " out") + (cur === today() ? " today" : "") + (tone ? " " + tone : ""),
+      style: d && inMonth && tone !== "flat" ? "--dtmix:" + Math.round(strength * 100) + "%" : null,
+      "aria-label": fmtDate(cur, true) + (d ? ", " + tsigned(d.net) + ", " + plural(d.count, "trade") : ", no trades"),
+      onclick: (function (date) { return function () { dtDayDialog(date); }; })(cur)
+    }, [
+      h("span", { class: "dn", text: String(+cur.slice(8)) }),
+      d ? h("span", { class: "pl" }, [h("span", { class: "full", text: tsigned(d.net) }), h("span", { class: "short", text: tshort(d.net) })]) : null,
+      d ? h("span", { class: "ct", text: plural(d.count, "trade") }) : null,
+      hasNote ? h("span", { class: "nt", title: "Has notes", "aria-hidden": "true", text: "✎" }) : null
+    ]);
+    grid.appendChild(cell);
+    if ((parseISO(cur).getDay() + 6) % 7 === 6) {
+      grid.appendChild(h("div", { class: "dtwk" }, wk.any ? [h("b", { class: wk.net > 0 ? "up" : wk.net < 0 ? "down" : "", text: tsigned(wk.net) }), h("small", { text: plural(wk.count, "trade") })] : [h("small", { text: "—" })]));
+    }
+    cur = addDays(cur, 1);
+  }
+  var isThis = mk === monthKey(today());
+  var head = h("div", { class: "dtcalhead" }, [
+    h("button", { class: "btn sm quiet", text: "‹", title: "Previous month", onclick: function () { UI.dtMonth = shiftMonth(mk, -1); render(); } }),
+    h("h2", { text: MONTHS[+mk.slice(5) - 1] + " " + mk.slice(0, 4) }),
+    h("button", { class: "btn sm quiet", text: "›", title: "Next month", onclick: function () { UI.dtMonth = shiftMonth(mk, 1); render(); } }),
+    h("span", { style: "flex:1" }),
+    isThis ? null : h("button", { class: "btn sm", text: "Today", onclick: function () { UI.dtMonth = null; render(); } }),
+    h("span", { class: "dtmonthnet" }, [h("b", { class: monthNet > 0 ? "up" : monthNet < 0 ? "down" : "", text: tsigned(monthNet) }), " this month",
+      monthCount ? h("small", { text: " · " + plural(monthCount, "trade") }) : null])
+  ]);
+  return h("section", { class: "panel dtcalpanel" }, [head, grid,
+    !list.length ? h("p", { class: "muted", style: "font-size:12.5px;padding:10px 14px", text: "Click any day to add its trades." }) : null]);
+}
+
+/* ---------- one day ---------- */
+function dtDayDialog(date) {
+  UI.dtDay = date;
+  var mk = monthKey(date), doc = dtMonth(mk);
+  var trades = (doc.items || []).filter(function (t) { return t.date === date && dtPass(t); })
+    .sort(function (a, b) { return String(a.time || "").localeCompare(String(b.time || "")); });
+  var net = 0, wins = 0, losses = 0, count = 0;
+  trades.forEach(function (t) { var v = dtNet(t); net += v; count += dtCount(t); if (t.kind !== "day") { if (v > 0) wins++; else if (v < 0) losses++; } });
+  var list = h("div", { class: "dtdaylist" });
+  if (!trades.length) list.appendChild(h("p", { class: "muted", style: "font-size:13px;padding:10px 2px", text: "No trades logged for this day" + (dtAcct() ? " on " + dtAcct() : "") + "." }));
+  trades.forEach(function (t) {
+    var v = dtNet(t);
+    var desc = t.kind === "day" ? "Day total · " + plural(dtCount(t), "trade")
+      : [t.side === "short" ? "Short" : "Long", n(t.qty) ? num(n(t.qty), 4) : null,
+         t.entry !== undefined && t.entry !== "" && t.exit !== undefined && t.exit !== "" ? num(n(t.entry), 6) + " → " + num(n(t.exit), 6) : null].filter(Boolean).join(" · ");
+    list.appendChild(h("div", { class: "dttrade" }, [
+      h("div", { class: "l" }, [
+        h("b", {}, [t.kind === "day" ? (t.symbol || "All trades") : (t.symbol || "—"), t.time ? h("span", { class: "muted", style: "font-weight:400;margin-left:6px", text: t.time }) : null]),
+        h("small", { text: desc }),
+        h("small", { text: [t.account, t.setup, n(t.fees) ? "fees " + tmoney(n(t.fees), 2) : null].filter(Boolean).join(" · ") }),
+        t.note ? h("small", { class: "note", text: t.note }) : null
+      ]),
+      h("span", { class: "v " + (v > 0 ? "up" : v < 0 ? "down" : ""), text: tsigned(v) }),
+      h("span", { class: "a" }, [
+        h("button", { class: "btn sm quiet", text: "Edit", onclick: function () { editTrade(t); } }),
+        h("button", { class: "btn sm quiet", text: "×", title: "Delete", onclick: function () {
+          confirmDialog({ title: "Delete this trade?", body: (t.symbol || "Trade") + " " + tsigned(v) + " on " + fmtDate(date, true) + ".", confirmLabel: "Delete",
+            onConfirm: function () { doc.items = doc.items.filter(function (x) { return x.id !== t.id; }); saveDt(mk); render(); setTimeout(function () { dtDayDialog(date); }, 50); } });
+        } })
+      ])
+    ]));
+  });
+  var noteIn = h("textarea", { rows: "3", placeholder: "What went well, what didn't, market conditions…", class: "dtnote" });
+  noteIn.value = (doc.notes || {})[date] || "";
+  function saveNote() {
+    var v = noteIn.value.trim();
+    doc.notes = doc.notes || {};
+    if ((doc.notes[date] || "") === v) return;
+    if (v) doc.notes[date] = v; else delete doc.notes[date];
+    saveDt(mk); render();
+  }
+  noteIn.addEventListener("blur", saveNote);
+  openDialog({
+    title: DAYS_S[(parseISO(date).getDay() + 6) % 7] + " " + fmtDate(date, true),
+    wide: true,
+    body: h("div", {}, [
+      trades.length ? h("div", { class: "dtdaysum" }, [
+        h("b", { class: net > 0 ? "up" : net < 0 ? "down" : "", text: tsigned(net) }),
+        h("span", { class: "muted", text: " · " + plural(count, "trade") + (wins + losses ? " · " + wins + " won, " + losses + " lost" : "") })]) : null,
+      list,
+      field("Journal", noteIn, "Saved when you click away.")
+    ]),
+    left: h("div", { class: "mrow", style: "gap:6px" }, [
+      h("button", { type: "button", class: "btn sm quiet", text: "‹ Day", onclick: function () { saveNote(); dtDayDialog(addDays(date, -1)); } }),
+      h("button", { type: "button", class: "btn sm quiet", text: "Day ›", onclick: function () { saveNote(); dtDayDialog(addDays(date, 1)); } })
+    ]),
+    actions: [{ label: "Add trade", primary: true, onClick: function () { saveNote(); editTrade(null, date); return false; } }]
+  });
+}
+
+/* ---------- adding and editing ---------- */
+function editTrade(t, date) {
+  var isNew = !t;
+  var known = dtAccounts();
+  var lastAcct = tgtPref("dtLastAcct", "") || (known.length === 1 ? known[0] : "");
+  var d = t ? clone(t) : { id: uid(), date: date || today(), time: "", account: dtAcct() || lastAcct, symbol: "", side: "long", qty: "1", entry: "", exit: "", ppt: "", pnl: "", fees: "", setup: "", note: "" };
+  var mode = d.kind === "day" ? "day" : "trade";
+  var manualPnl = !isNew && d.kind !== "day" && (d.entry === "" || d.entry === undefined);
+  var wrap = h("div");
+  var dl = function (id, opts) { return h("datalist", { id: id }, opts.map(function (o) { return h("option", { value: o }); })); };
+
+  function calc() {
+    var ppt = d.ppt !== "" && d.ppt !== undefined ? parseFloat(d.ppt) : futPPT(d.symbol);
+    var e = parseFloat(d.entry), x = parseFloat(d.exit), q = parseFloat(d.qty);
+    if (!(ppt > 0) || !isFinite(e) || !isFinite(x) || !(q > 0)) return null;
+    var pts = (x - e) * (d.side === "short" ? -1 : 1);
+    return { pnl: Math.round(pts * ppt * q * 100) / 100, pts: pts, ppt: ppt, q: q };
+  }
+  function build() {
+    wrap.innerHTML = "";
+    var f = [];
+    f.push(field("Log as", segmented([{ v: "trade", l: "One trade" }, { v: "day", l: "A day's total" }], mode, function (v) { mode = v; build(); })));
+    f.push(h("div", { class: "frow" }, [
+      field("Date", inp({ type: "date", value: d.date, oninput: function (e) { d.date = e.target.value; } })),
+      mode === "trade" ? field("Time", inp({ type: "time", value: d.time || "", oninput: function (e) { d.time = e.target.value; } }), "Optional") : null,
+      field("Account", inp({ value: d.account || "", list: "dtacctlist", placeholder: "LEADER-50K", oninput: function (e) { d.account = e.target.value; } }))
+    ]));
+    if (mode === "trade") {
+      var hint = h("span", { class: "hint" });
+      var pnlIn = inp({ type: "number", step: "any", value: d.pnl, placeholder: "e.g. 84 or -36",
+        oninput: function (e) { d.pnl = e.target.value; manualPnl = e.target.value !== ""; showCalc(); } });
+      var showCalc = function () {
+        var c = calc();
+        if (c && !manualPnl) { d.pnl = String(c.pnl); pnlIn.value = d.pnl; }
+        var ppt = d.ppt !== "" && d.ppt !== undefined ? parseFloat(d.ppt) : futPPT(d.symbol);
+        hint.textContent = c ? (c.pts >= 0 ? "+" : "") + num(c.pts, 4) + " pts × $" + num(c.ppt, 4) + " × " + num(c.q, 4) + " = " + tsigned(c.pnl) + (manualPnl ? " (you've typed your own)" : "")
+          : ppt ? "$" + num(ppt, 4) + " per point. Add entry and exit to work out P&L, or type it." : "Type the P&L, or set $ per point to work it out from entry and exit.";
+      };
+      f.push(h("div", { class: "frow" }, [
+        field("Symbol", inp({ value: d.symbol || "", list: "dtsymlist", placeholder: "MNQ", style: "text-transform:uppercase",
+          oninput: function (e) { d.symbol = e.target.value.toUpperCase().trim(); pptIn.placeholder = futPPT(d.symbol) ? String(futPPT(d.symbol)) : "—"; showCalc(); } })),
+        field("Side", segmented([{ v: "long", l: "Long" }, { v: "short", l: "Short" }], d.side || "long", function (v) { d.side = v; showCalc(); })),
+        field("Contracts", inp({ type: "number", step: "any", min: "0", value: d.qty, oninput: function (e) { d.qty = e.target.value; showCalc(); } }))
+      ]));
+      var pptIn = inp({ type: "number", step: "any", value: d.ppt || "", placeholder: futPPT(d.symbol) ? String(futPPT(d.symbol)) : "—",
+        oninput: function (e) { d.ppt = e.target.value; showCalc(); } });
+      f.push(h("div", { class: "frow" }, [
+        field("Entry", inp({ type: "number", step: "any", value: d.entry, oninput: function (e) { d.entry = e.target.value; showCalc(); } })),
+        field("Exit", inp({ type: "number", step: "any", value: d.exit, oninput: function (e) { d.exit = e.target.value; showCalc(); } })),
+        field("$ per point", pptIn, "Filled in for common futures")
+      ]));
+      f.push(h("div", { class: "frow" }, [
+        field("P&L", h("div", {}, [pnlIn, hint])),
+        field("Fees", inp({ type: "number", step: "any", min: "0", value: d.fees, placeholder: "0", oninput: function (e) { d.fees = e.target.value; } }), "Commissions; taken off P&L")
+      ]));
+      setTimeout(showCalc, 0);
+    } else {
+      f.push(h("div", { class: "frow" }, [
+        field("Net P&L for the day", inp({ type: "number", step: "any", value: d.pnl, placeholder: "e.g. 180", oninput: function (e) { d.pnl = e.target.value; } }), "After fees"),
+        field("Number of trades", inp({ type: "number", step: "1", min: "1", value: d.count || "", placeholder: "1", oninput: function (e) { d.count = e.target.value; } })),
+        field("Symbol", inp({ value: d.symbol || "", list: "dtsymlist", placeholder: "Optional", oninput: function (e) { d.symbol = e.target.value.toUpperCase().trim(); } }))
+      ]));
+    }
+    f.push(h("div", { class: "frow" }, [
+      field("Setup", inp({ value: d.setup || "", list: "dtsetuplist", placeholder: "e.g. CRT, KC + RSI", oninput: function (e) { d.setup = e.target.value; } }), "Groups trades in By setup"),
+      field("Note", inp({ value: d.note || "", placeholder: "Optional", oninput: function (e) { d.note = e.target.value; } }))
+    ]));
+    f.push(dl("dtacctlist", dtAccounts()), dl("dtsymlist", dtSymbols()), dl("dtsetuplist", dtSetups()));
+    add(wrap, f);
+  }
+  build();
+
+  function commit() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date || "")) { toast("Pick a date."); return false; }
+    var pnl = parseFloat(d.pnl);
+    if (!isFinite(pnl)) { toast(mode === "day" ? "Enter the day's P&L." : "Enter the P&L, or entry, exit and contracts."); return false; }
+    var rec = { id: d.id, date: d.date, account: String(d.account || "").trim(), pnl: pnl };
+    if (mode === "day") {
+      rec.kind = "day"; rec.count = Math.max(1, Math.round(n(d.count) || 1));
+      if (d.symbol) rec.symbol = d.symbol;
+    } else {
+      rec.symbol = String(d.symbol || "").toUpperCase().trim(); rec.side = d.side === "short" ? "short" : "long";
+      rec.qty = n(d.qty) || 1;
+      if (d.time) rec.time = d.time;
+      ["entry", "exit", "ppt"].forEach(function (k) { if (d[k] !== "" && d[k] !== undefined && isFinite(parseFloat(d[k]))) rec[k] = parseFloat(d[k]); });
+      if (n(d.fees)) rec.fees = n(d.fees);
+    }
+    if (String(d.setup || "").trim()) rec.setup = String(d.setup).trim();
+    if (String(d.note || "").trim()) rec.note = String(d.note).trim();
+    // remove the old copy (it may have moved month), then file it under its date's month
+    if (!isNew) {
+      var oldMk = monthKey(t.date), od = dtMonth(oldMk);
+      od.items = (od.items || []).filter(function (x) { return x.id !== t.id; });
+      if (oldMk !== monthKey(rec.date)) saveDt(oldMk);
+    }
+    var mk = monthKey(rec.date), doc = dtMonth(mk);
+    (doc.items = doc.items || []).push(rec);
+    saveDt(mk);
+    if (rec.account) setTgtPref("dtLastAcct", rec.account); else render();
+    return rec;
+  }
+  openDialog({
+    title: isNew ? "Add trade" : "Edit trade",
+    wide: true,
+    body: wrap,
+    left: isNew ? h("button", { type: "button", class: "btn sm", text: "Save and add another", onclick: function () {
+      var r = commit(); if (!r) return;
+      toast("Saved " + (r.symbol || "trade") + " " + tsigned(dtNet(r)) + ".");
+      setTimeout(function () { editTrade(null, r.date); }, 30);
+    } }) : null,
+    actions: [{ label: isNew ? "Save trade" : "Save", primary: true, onClick: function () {
+      var r = commit(); if (!r) return false;
+      setTimeout(function () { dtDayDialog(r.date); }, 30);
+      return false;
+    } }]
+  });
+}
+
+/* ---------- trades list ---------- */
+function dtTradesPanel(list) {
+  var rows = list.slice().sort(function (a, b) { return (b.date + (b.time || "")).localeCompare(a.date + (a.time || "")); });
+  var tb = h("tbody");
+  rows.forEach(function (t) {
+    var v = dtNet(t);
+    tb.appendChild(h("tr", { class: "dtrow", onclick: function () { editTrade(t); } }, [
+      h("td", { class: "nowrap" }, [fmtDate(t.date), t.time ? h("div", { class: "muted", style: "font-size:11.5px", text: t.time }) : null]),
+      h("td", {}, [h("b", { text: t.kind === "day" ? (t.symbol || "Day total") : (t.symbol || "—") }), h("div", { class: "muted", style: "font-size:11.5px", text: t.account || "" })]),
+      h("td", { text: t.kind === "day" ? plural(dtCount(t), "trade") : (t.side === "short" ? "Short " : "Long ") + num(n(t.qty), 4) }),
+      h("td", { class: "nowrap", text: t.entry !== undefined && t.exit !== undefined ? num(t.entry, 6) + " → " + num(t.exit, 6) : "" }),
+      h("td", { text: t.setup || "" }),
+      h("td", { class: "num " + (v > 0 ? "up" : v < 0 ? "down" : ""), text: tsigned(v) })
+    ]));
+  });
+  var total = rows.reduce(function (a, t) { return a + dtNet(t); }, 0);
+  return h("section", { class: "panel" }, [
+    h("header", {}, [h("h2", { text: plural(rows.reduce(function (a, t) { return a + dtCount(t); }, 0), "trade") }),
+      h("span", { class: "note" }, [h("b", { class: total > 0 ? "up" : total < 0 ? "down" : "", text: tsigned(total) }), " net · click a row to edit"])]),
+    h("div", { class: "body flush" }, h("div", { class: "tablewrap" }, h("table", { class: "dttable" }, [
+      h("thead", {}, h("tr", {}, ["Date", "Symbol", "Size", "Entry → exit", "Setup", "P&L"].map(function (x, i) { return h("th", { class: i === 5 ? "num" : null, text: x }); }))), tb])))
+  ]);
+}
+
+/* ---------- stats ---------- */
+function dtStats(list) {
+  var single = list.filter(function (t) { return t.kind !== "day"; });
+  var wins = single.filter(function (t) { return dtNet(t) > 0; }), losses = single.filter(function (t) { return dtNet(t) < 0; });
+  var gw = wins.reduce(function (a, t) { return a + dtNet(t); }, 0), gl = losses.reduce(function (a, t) { return a + dtNet(t); }, 0);
+  var days = dtByDay(list), dayList = Object.keys(days).sort().map(function (k) { return days[k]; });
+  var net = list.reduce(function (a, t) { return a + dtNet(t); }, 0);
+  var peak = 0, run = 0, dd = 0;
+  dayList.forEach(function (d) { run += d.net; peak = Math.max(peak, run); dd = Math.min(dd, run - peak); });
+  var best = dayList.slice().sort(function (a, b) { return b.net - a.net; })[0], worst = dayList.slice().sort(function (a, b) { return a.net - b.net; })[0];
+  return {
+    net: net, trades: list.reduce(function (a, t) { return a + dtCount(t); }, 0), single: single.length,
+    winRate: wins.length + losses.length ? (wins.length / (wins.length + losses.length)) * 100 : null,
+    avgWin: wins.length ? gw / wins.length : null, avgLoss: losses.length ? gl / losses.length : null,
+    pf: gl < 0 ? gw / Math.abs(gl) : (gw > 0 ? Infinity : null), expectancy: single.length ? single.reduce(function (a, t) { return a + dtNet(t); }, 0) / single.length : null,
+    bigWin: wins.length ? Math.max.apply(null, wins.map(dtNet)) : null, bigLoss: losses.length ? Math.min.apply(null, losses.map(dtNet)) : null,
+    greenDays: dayList.filter(function (d) { return d.net > 0; }).length, redDays: dayList.filter(function (d) { return d.net < 0; }).length,
+    days: dayList, best: best, worst: worst, maxDD: dd,
+    fees: list.reduce(function (a, t) { return a + n(t.fees); }, 0)
+  };
+}
+function dtStatsPanel(list, range) {
+  var st = dtStats(list);
+  var tile = function (k, v, c, sub) { return h("div", {}, [h("div", { class: "k", text: k }), h("div", { class: "v " + (c || ""), text: v }), sub ? h("div", { class: "k", text: sub }) : null]); };
+  var pf = st.pf === null ? "—" : st.pf === Infinity ? "∞" : st.pf.toFixed(2);
+  var dayRate = st.greenDays + st.redDays ? Math.round((st.greenDays / (st.greenDays + st.redDays)) * 100) + "%" : "—";
+  var out = frag([]);
+  add(out, h("section", { class: "panel" }, h("div", { class: "stats" }, [
+    tile("Net P&L", tsigned(st.net), st.net > 0 ? "up" : st.net < 0 ? "down" : "", plural(st.trades, "trade") + (st.fees ? " · " + tmoney(st.fees) + " fees" : "")),
+    tile("Win rate", st.winRate === null ? "—" : Math.round(st.winRate) + "%", "", st.single ? "of " + plural(st.single, "single trade") : "no single trades"),
+    tile("Profit factor", pf, "", "gross wins ÷ gross losses"),
+    tile("Avg win / loss", (st.avgWin === null ? "—" : tmoney(st.avgWin)) + " / " + (st.avgLoss === null ? "—" : tmoney(st.avgLoss)), "",
+      st.avgWin && st.avgLoss ? "ratio " + (st.avgWin / Math.abs(st.avgLoss)).toFixed(2) : ""),
+    tile("Expectancy", st.expectancy === null ? "—" : tsigned(st.expectancy), st.expectancy > 0 ? "up" : st.expectancy < 0 ? "down" : "", "per trade"),
+    tile("Green days", st.greenDays + " / " + (st.greenDays + st.redDays), "", dayRate + " of trading days"),
+    tile("Best day", st.best ? tsigned(st.best.net) : "—", "up", st.best ? fmtDate(st.best.date) : ""),
+    tile("Worst day", st.worst ? tsigned(st.worst.net) : "—", st.worst && st.worst.net < 0 ? "down" : "", st.worst ? fmtDate(st.worst.date) : ""),
+    tile("Largest win / loss", (st.bigWin === null ? "—" : tmoney(st.bigWin)) + " / " + (st.bigLoss === null ? "—" : tmoney(st.bigLoss))),
+    tile("Max drawdown", st.maxDD < 0 ? tmoney(st.maxDD) : "$0", st.maxDD < 0 ? "down" : "", "from a closing-day peak")
+  ])));
+  var run = 0, rows = [];
+  st.days.forEach(function (d) { run += d.net; rows.push({ date: d.date, total: Math.round(run * 100) / 100 }); });
+  if (rows.length === 1) rows.unshift({ date: addDays(rows[0].date, -1), total: 0 });
+  add(out, h("section", { class: "panel" }, [
+    h("header", {}, [h("h2", { text: "Cumulative P&L" }), h("span", { class: "note", text: range === "all" ? "all time, by trading day" : "this month, by trading day" })]),
+    h("div", { class: "body" }, timeChart(rows, { mode: "net", h: 220, label: "Cumulative P&L", fmt: tmoney }))
+  ]));
+  if (list.some(function (t) { return t.kind === "day"; })) add(out, h("p", { class: "muted", style: "font-size:12px;margin:-6px 2px 18px",
+    text: "Days logged as a single total count towards P&L, days and drawdown, but not towards win rate, averages or expectancy, which need individual trades." }));
+  return out;
+}
+
+/* ---------- by setup (and by symbol, by account) ---------- */
+function dtSetupPanel(list) {
+  function group(keyFn, title, empty) {
+    var g = {};
+    list.forEach(function (t) {
+      var k = keyFn(t) || empty;
+      var x = g[k] || (g[k] = { k: k, list: [] });
+      x.list.push(t);
+    });
+    var rows = Object.keys(g).map(function (k) { var st = dtStats(g[k].list); st.k = k; return st; }).sort(function (a, b) { return b.net - a.net; });
+    var tb = h("tbody");
+    rows.forEach(function (r) {
+      tb.appendChild(h("tr", {}, [
+        h("td", {}, h("b", { text: r.k })),
+        h("td", { class: "num", text: String(r.trades) }),
+        h("td", { class: "num", text: r.winRate === null ? "—" : Math.round(r.winRate) + "%" }),
+        h("td", { class: "num", text: r.pf === null ? "—" : r.pf === Infinity ? "∞" : r.pf.toFixed(2) }),
+        h("td", { class: "num " + (r.expectancy > 0 ? "up" : r.expectancy < 0 ? "down" : ""), text: r.expectancy === null ? "—" : tsigned(r.expectancy) }),
+        h("td", { class: "num " + (r.net > 0 ? "up" : r.net < 0 ? "down" : ""), text: tsigned(r.net) })
+      ]));
+    });
+    return h("section", { class: "panel" }, [h("header", {}, [h("h2", { text: title })]),
+      h("div", { class: "body flush" }, h("div", { class: "tablewrap" }, h("table", { class: "dttable" }, [
+        h("thead", {}, h("tr", {}, [title.replace(/^By /, ""), "Trades", "Win rate", "Profit factor", "Per trade", "Net P&L"].map(function (x, i) { return h("th", { class: i ? "num" : null, text: x.charAt(0).toUpperCase() + x.slice(1) }); }))), tb])))]);
+  }
+  return frag([
+    group(function (t) { return t.setup; }, "By setup", "No setup"),
+    group(function (t) { return t.symbol; }, "By symbol", "No symbol"),
+    dtAccounts().length > 1 && !dtAcct() ? group(function (t) { return t.account; }, "By account", "No account") : null,
+    group(function (t) { return DAYS_S[(parseISO(t.date).getDay() + 6) % 7]; }, "By weekday", "")
+  ]);
+}
+
 var VIEWS = [
   { id: "today", label: "Today", render: viewToday },
   { id: "portfolio", label: "Portfolio", render: viewPortfolio },
   { id: "networth", label: "Net worth", render: viewNetworth },
+  { id: "trading", label: "Trading", render: viewTrading },
   { id: "budget", label: "Budget", render: viewBudget },
   { id: "habits", label: "Habits", render: viewHabits },
   { id: "training", label: "Training", render: viewTraining },
@@ -7579,7 +8103,7 @@ async function boot() {
   document.addEventListener("keydown", function (e) {
     if (e.target.matches("input,select,textarea") || e.metaKey || e.ctrlKey) return;
     var map = { "1": "today", "2": "portfolio", "3": "networth", "4": "budget",
-                "5": "habits", "6": "training", "7": "nutrition", "8": "reminders" };
+                "5": "habits", "6": "training", "7": "nutrition", "8": "reminders", "9": "trading" };
     if (map[e.key]) go(map[e.key]);
   });
 }
