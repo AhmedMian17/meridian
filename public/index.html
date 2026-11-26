@@ -421,6 +421,16 @@ b.up, .num.up, span.up{color:var(--up)} b.down, .num.down, span.down{color:var(-
 .dttrade .l small{font-size:12px; color:var(--ink-2)}
 .dttrade .l small.note{color:var(--ink-3); font-style:italic}
 .dttrade .v{font-weight:600; font-variant-numeric:tabular-nums}
+.dtrings{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:18px; padding-top:18px; padding-bottom:16px}
+@media (max-width:720px){ .dtrings{grid-template-columns:repeat(2, minmax(0,1fr)); gap:16px 10px} }
+.dtstats.c4{grid-template-columns:repeat(4, minmax(0,1fr))}
+.dtstats.c3{grid-template-columns:repeat(3, minmax(0,1fr))}
+@media (max-width:720px){ .dtstats.c4, .dtstats.c3{grid-template-columns:repeat(2, minmax(0,1fr))} }
+.dtring{display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center}
+.dtring .rt{font-size:13px; color:var(--ink-2)}
+.dtring .rsvg svg{width:124px; height:124px; display:block}
+.dtring .ri{font-size:11px; color:var(--ink-3); max-width:200px; line-height:1.35}
+.ringval{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif; font-weight:700; font-size:24px; fill:var(--ink)}
 .dtnote{width:100%; resize:vertical}
 .dttable td.num, .dttable th.num{text-align:right}
 .dttable tr.dtrow{cursor:pointer}
@@ -7901,7 +7911,8 @@ function dtTradesPanel(list) {
 
 /* ---------- stats ---------- */
 function dtStats(list) {
-  var single = list.filter(function (t) { return t.kind !== "day"; });
+  var ordered = list.slice().sort(function (a, b) { return (a.date + (a.time || "")).localeCompare(b.date + (b.time || "")); });
+  var single = ordered.filter(function (t) { return t.kind !== "day"; });
   var wins = single.filter(function (t) { return dtNet(t) > 0; }), losses = single.filter(function (t) { return dtNet(t) < 0; });
   var gw = wins.reduce(function (a, t) { return a + dtNet(t); }, 0), gl = losses.reduce(function (a, t) { return a + dtNet(t); }, 0);
   var days = dtByDay(list), dayList = Object.keys(days).sort().map(function (k) { return days[k]; });
@@ -7909,36 +7920,102 @@ function dtStats(list) {
   var peak = 0, run = 0, dd = 0;
   dayList.forEach(function (d) { run += d.net; peak = Math.max(peak, run); dd = Math.min(dd, run - peak); });
   var best = dayList.slice().sort(function (a, b) { return b.net - a.net; })[0], worst = dayList.slice().sort(function (a, b) { return a.net - b.net; })[0];
+  // longest runs of winners and losers (break-even trades end a run), and where things stand now
+  function streaks(seq, val) {
+    var w = 0, l = 0, cw = 0, cl = 0;
+    seq.forEach(function (x) {
+      var v = val(x);
+      if (v > 0) { cw++; cl = 0; } else if (v < 0) { cl++; cw = 0; } else { cw = 0; cl = 0; }
+      w = Math.max(w, cw); l = Math.max(l, cl);
+    });
+    return { maxW: w, maxL: l, now: cw ? cw : cl ? -cl : 0 };
+  }
+  var ts = streaks(single, dtNet), ds = streaks(dayList, function (d) { return d.net; });
+  function side(s) {
+    var l = single.filter(function (t) { return (t.side || "long") === s; });
+    var w = l.filter(function (t) { return dtNet(t) > 0; }).length, lo = l.filter(function (t) { return dtNet(t) < 0; }).length;
+    return { count: l.length, net: l.reduce(function (a, t) { return a + dtNet(t); }, 0), winRate: w + lo ? (w / (w + lo)) * 100 : null };
+  }
+  var green = dayList.filter(function (d) { return d.net > 0; }), red = dayList.filter(function (d) { return d.net < 0; });
   return {
     net: net, trades: list.reduce(function (a, t) { return a + dtCount(t); }, 0), single: single.length,
+    wins: wins.length, losses: losses.length, breakeven: single.length - wins.length - losses.length,
+    grossWin: gw, grossLoss: gl,
     winRate: wins.length + losses.length ? (wins.length / (wins.length + losses.length)) * 100 : null,
     avgWin: wins.length ? gw / wins.length : null, avgLoss: losses.length ? gl / losses.length : null,
     pf: gl < 0 ? gw / Math.abs(gl) : (gw > 0 ? Infinity : null), expectancy: single.length ? single.reduce(function (a, t) { return a + dtNet(t); }, 0) / single.length : null,
     bigWin: wins.length ? Math.max.apply(null, wins.map(dtNet)) : null, bigLoss: losses.length ? Math.min.apply(null, losses.map(dtNet)) : null,
-    greenDays: dayList.filter(function (d) { return d.net > 0; }).length, redDays: dayList.filter(function (d) { return d.net < 0; }).length,
-    days: dayList, best: best, worst: worst, maxDD: dd,
+    greenDays: green.length, redDays: red.length, tradingDays: dayList.length,
+    avgDay: dayList.length ? net / dayList.length : null,
+    avgGreenDay: green.length ? green.reduce(function (a, d) { return a + d.net; }, 0) / green.length : null,
+    avgRedDay: red.length ? red.reduce(function (a, d) { return a + d.net; }, 0) / red.length : null,
+    tradesPerDay: dayList.length ? list.reduce(function (a, t) { return a + dtCount(t); }, 0) / dayList.length : null,
+    days: dayList, best: best, worst: worst, maxDD: dd, recovery: dd < 0 ? net / Math.abs(dd) : null,
+    streak: ts, dayStreak: ds, long: side("long"), short: side("short"),
     fees: list.reduce(function (a, t) { return a + n(t.fees); }, 0)
   };
 }
+/** A ring gauge: the arc is the share shown, the number in the middle is the stat itself. */
+function dtRing(title, value, share, sub, tone, info, more) {
+  var R = 46, W = 9, C = 2 * Math.PI * R, len = Math.max(0, Math.min(1, share || 0)) * C;
+  var colour = tone === "down" ? "var(--down)" : tone === "flat" ? "var(--ink-3)" : "var(--up)";
+  var o = '<svg viewBox="0 0 120 120" role="img" aria-label="' + esc(title + " " + value) + '">' +
+    '<circle cx="60" cy="60" r="' + R + '" fill="none" stroke="var(--sunken)" stroke-width="' + W + '"/>' +
+    (len > 0 ? '<circle cx="60" cy="60" r="' + R + '" fill="none" stroke="' + colour + '" stroke-width="' + W + '" stroke-linecap="round" stroke-dasharray="' +
+      Math.max(0.01, len - (share >= 0.999 ? 0 : 0)).toFixed(2) + " " + C.toFixed(2) + '" transform="rotate(-90 60 60)"/>' : "") +
+    '<text x="60" y="67" text-anchor="middle" class="ringval">' + esc(value) + "</text></svg>";
+  return h("div", { class: "dtring", title: more || info || null }, [
+    h("div", { class: "rt" }, [h("span", { text: title }), sub ? h("span", { class: "muted", text: " · " + sub }) : null]),
+    svgEl(o, "rsvg"),
+    info ? h("div", { class: "ri", text: info }) : null
+  ]);
+}
 function dtStatsPanel(list, range) {
   var st = dtStats(list);
-  var tile = function (k, v, c, sub) { return h("div", {}, [h("div", { class: "k", text: k }), h("div", { class: "v " + (c || ""), text: v }), sub ? h("div", { class: "k", text: sub }) : null]); };
-  var pf = st.pf === null ? "—" : st.pf === Infinity ? "∞" : st.pf.toFixed(2);
-  var dayRate = st.greenDays + st.redDays ? Math.round((st.greenDays / (st.greenDays + st.redDays)) * 100) + "%" : "—";
   var out = frag([]);
-  add(out, h("section", { class: "panel" }, h("div", { class: "stats" }, [
-    tile("Net P&L", tsigned(st.net), st.net > 0 ? "up" : st.net < 0 ? "down" : "", plural(st.trades, "trade") + (st.fees ? " · " + tmoney(st.fees) + " fees" : "")),
-    tile("Win rate", st.winRate === null ? "—" : Math.round(st.winRate) + "%", "", st.single ? "of " + plural(st.single, "single trade") : "no single trades"),
-    tile("Profit factor", pf, "", "gross wins ÷ gross losses"),
-    tile("Avg win / loss", (st.avgWin === null ? "—" : tmoney(st.avgWin)) + " / " + (st.avgLoss === null ? "—" : tmoney(st.avgLoss)), "",
-      st.avgWin && st.avgLoss ? "ratio " + (st.avgWin / Math.abs(st.avgLoss)).toFixed(2) : ""),
-    tile("Expectancy", st.expectancy === null ? "—" : tsigned(st.expectancy), st.expectancy > 0 ? "up" : st.expectancy < 0 ? "down" : "", "per trade"),
-    tile("Green days", st.greenDays + " / " + (st.greenDays + st.redDays), "", dayRate + " of trading days"),
-    tile("Best day", st.best ? tsigned(st.best.net) : "—", "up", st.best ? fmtDate(st.best.date) : ""),
-    tile("Worst day", st.worst ? tsigned(st.worst.net) : "—", st.worst && st.worst.net < 0 ? "down" : "", st.worst ? fmtDate(st.worst.date) : ""),
-    tile("Largest win / loss", (st.bigWin === null ? "—" : tmoney(st.bigWin)) + " / " + (st.bigLoss === null ? "—" : tmoney(st.bigLoss))),
-    tile("Max drawdown", st.maxDD < 0 ? tmoney(st.maxDD) : "$0", st.maxDD < 0 ? "down" : "", "from a closing-day peak")
+  var fmtPf = st.pf === null ? "—" : st.pf === Infinity ? "∞" : st.pf.toFixed(2);
+  var ratio = st.avgWin !== null && st.avgLoss !== null ? st.avgWin / Math.abs(st.avgLoss) : null;
+  var decided = st.wins + st.losses, dayDecided = st.greenDays + st.redDays;
+  add(out, h("section", { class: "panel" }, h("div", { class: "body dtrings" }, [
+    dtRing("Profit factor", fmtPf, st.grossWin || st.grossLoss ? st.grossWin / (st.grossWin + Math.abs(st.grossLoss)) : 0, null,
+      st.pf === null ? "flat" : st.pf >= 1 ? "up" : "down", "Gross wins ÷ gross losses", "Gross wins ÷ gross losses. The ring shows wins' share of everything won and lost."),
+    dtRing("Win rate", st.winRate === null ? "—" : (Math.round(st.winRate * 10) / 10) + "%", st.winRate === null ? 0 : st.winRate / 100,
+      decided ? st.wins + "/" + decided : null, st.winRate === null ? "flat" : "up", "Winners ÷ trades won or lost" + (st.breakeven ? " · " + st.breakeven + " break-even left out" : "")),
+    dtRing("Green days", dayDecided ? Math.round((st.greenDays / dayDecided) * 100) + "%" : "—", dayDecided ? st.greenDays / dayDecided : 0,
+      dayDecided ? st.greenDays + "/" + dayDecided : null, dayDecided ? "up" : "flat", "Days up ÷ days up or down"),
+    dtRing("Avg win ÷ avg loss", ratio === null ? "—" : ratio.toFixed(2), ratio === null ? 0 : ratio / (ratio + 1),
+      null, ratio === null ? "flat" : ratio >= 1 ? "up" : "down", "Average winner ÷ average loser", "How big the average winner is next to the average loser. The ring shows the winner's share of the two.")
   ])));
+  var tile = function (k, v, c, sub) { return h("div", {}, [h("div", { class: "k", text: k }), h("div", { class: "v " + (c || ""), text: v }), sub ? h("div", { class: "k", text: sub }) : null]); };
+  var tone = function (v) { return v > 0 ? "up" : v < 0 ? "down" : ""; };
+  var streakNow = function (s, unit) { return s.now > 0 ? s.now + " " + unit + (s.now === 1 ? "" : "s") + " won in a row" : s.now < 0 ? -s.now + " " + unit + (s.now === -1 ? "" : "s") + " lost in a row" : "no current streak"; };
+  var section = function (title, tiles) { return h("section", { class: "panel" }, [h("header", {}, h("h2", { text: title })), h("div", { class: "stats dtstats c" + (tiles.length % 4 === 0 ? 4 : 3) }, tiles)]); };
+  add(out, section("Performance", [
+    tile("Net P&L", tsigned(st.net), tone(st.net), plural(st.trades, "trade") + (st.fees ? " · " + tmoney(st.fees) + " fees" : "")),
+    tile("Expectancy", st.expectancy === null ? "—" : tsigned(st.expectancy), tone(st.expectancy), "average per trade"),
+    tile("Avg win", st.avgWin === null ? "—" : tmoney(st.avgWin), "up", plural(st.wins, "winner")),
+    tile("Avg loss", st.avgLoss === null ? "—" : tmoney(st.avgLoss), "down", plural(st.losses, "loser")),
+    tile("Largest win", st.bigWin === null ? "—" : tmoney(st.bigWin), "up"),
+    tile("Largest loss", st.bigLoss === null ? "—" : tmoney(st.bigLoss), "down"),
+    tile("Max drawdown", st.maxDD < 0 ? tmoney(st.maxDD) : "$0", st.maxDD < 0 ? "down" : "", "from a closing-day peak"),
+    tile("Recovery factor", st.recovery === null ? "—" : st.recovery.toFixed(2), "", "net P&L ÷ max drawdown")
+  ]));
+  add(out, section("Days", [
+    tile("Trading days", String(st.tradingDays), "", st.tradesPerDay === null ? "" : (Math.round(st.tradesPerDay * 10) / 10) + " trades a day"),
+    tile("Avg day", st.avgDay === null ? "—" : tsigned(st.avgDay), tone(st.avgDay)),
+    tile("Avg green day", st.avgGreenDay === null ? "—" : tsigned(st.avgGreenDay), "up"),
+    tile("Avg red day", st.avgRedDay === null ? "—" : tmoney(st.avgRedDay), "down"),
+    tile("Best day", st.best ? tsigned(st.best.net) : "—", "up", st.best ? fmtDate(st.best.date) : ""),
+    tile("Worst day", st.worst ? tsigned(st.worst.net) : "—", st.worst && st.worst.net < 0 ? "down" : "", st.worst ? fmtDate(st.worst.date) : "")
+  ]));
+  add(out, section("Streaks and sides", [
+    tile("Most wins in a row", String(st.streak.maxW), "", "trades"),
+    tile("Most losses in a row", String(st.streak.maxL), "", "trades"),
+    tile("Now", st.streak.now > 0 ? "+" + st.streak.now : String(st.streak.now), tone(st.streak.now), streakNow(st.streak, "trade")),
+    tile("Green days in a row", String(st.dayStreak.maxW), "", "best run · red: " + st.dayStreak.maxL),
+    tile("Long", st.long.count ? tsigned(st.long.net) : "—", tone(st.long.net), st.long.count ? plural(st.long.count, "trade") + (st.long.winRate === null ? "" : " · " + Math.round(st.long.winRate) + "% won") : "no longs"),
+    tile("Short", st.short.count ? tsigned(st.short.net) : "—", tone(st.short.net), st.short.count ? plural(st.short.count, "trade") + (st.short.winRate === null ? "" : " · " + Math.round(st.short.winRate) + "% won") : "no shorts")
+  ]));
   var run = 0, rows = [];
   st.days.forEach(function (d) { run += d.net; rows.push({ date: d.date, total: Math.round(run * 100) / 100 }); });
   if (rows.length === 1) rows.unshift({ date: addDays(rows[0].date, -1), total: 0 });
@@ -7947,7 +8024,7 @@ function dtStatsPanel(list, range) {
     h("div", { class: "body" }, timeChart(rows, { mode: "net", h: 220, label: "Cumulative P&L", fmt: tmoney }))
   ]));
   if (list.some(function (t) { return t.kind === "day"; })) add(out, h("p", { class: "muted", style: "font-size:12px;margin:-6px 2px 18px",
-    text: "Days logged as a single total count towards P&L, days and drawdown, but not towards win rate, averages or expectancy, which need individual trades." }));
+    text: "Days logged as a single total count towards P&L, days and drawdown, but not towards win rate, averages, streaks or expectancy, which need individual trades." }));
   return out;
 }
 
