@@ -564,6 +564,7 @@ b.up, .num.up, span.up{color:var(--up)} b.down, .num.down, span.down{color:var(-
 .sklab{font-size:12px; font-weight:600; fill:var(--ink)}
 .skval{font-size:11px; fill:var(--ink-3)}
 .skfoot{font-size:12.5px; text-align:center; margin-top:10px}
+.pfwait{min-height:372px; display:flex; align-items:center; justify-content:center; font-size:13px}
 .pfsum{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin-bottom:14px}
 .pfsum .k{font-size:12px; color:var(--ink-3)}
 .pfsum .v{font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:20px; line-height:1.15}
@@ -2723,10 +2724,12 @@ function pfValuePanel() {
   var chips = segChips(PF_RANGES, range, function (v) { setTgtPref("pfRange", v); }, "Time frame");
   var head = h("header", { class: "tgthdr" }, [h("h2", { text: "Value over time" }), chips]);
   var data = PfHist.data;
-  if (!data || data.sig !== pfSig()) {
-    return h("section", { class: "panel" }, [head, h("div", { class: "body" }, h("p", { class: "muted", style: "font-size:13px;padding:30px 0;text-align:center" },
+  // first time only: hold the chart's full height so nothing below jumps when it arrives
+  if (!data) {
+    return h("section", { class: "panel" }, [head, h("div", { class: "body pfwait" }, h("p", { class: "muted" },
       [h("span", { class: "spin", style: "margin-right:8px" }), "Rebuilding your history from daily prices" + ELLIPSIS]))]);
   }
+  var stale = data.sig !== pfSig();     // after an edit: keep showing the last chart while it updates
   var start = pfRangeStart(range, first);
   var all = data.rows.concat([{ date: today(), v: Math.round(portfolioTotals().value * 100) / 100 }]);
   var rows = all.filter(function (r) { return r.date >= start; });
@@ -2754,7 +2757,7 @@ function pfValuePanel() {
     summary,
     timeChart(chartRows, { mode: "net", h: 220, label: "Portfolio value" }),
     h("p", { class: "muted", style: "font-size:12px;margin-top:8px", text: notes.join(" ") }),
-    h("div", { style: "text-align:right;margin-top:-4px" }, h("button", { class: "linkbtn", style: "font-size:12px", text: PfHist.building ? "Refreshing" + ELLIPSIS : "Rebuild history",
+    h("div", { style: "text-align:right;margin-top:-4px" }, h("button", { class: "linkbtn", style: "font-size:12px", text: PfHist.building || stale ? "Updating" + ELLIPSIS : "Rebuild history",
       onclick: function () { PfHist.data = null; try { localStorage.removeItem("meridian-ui:pfHist"); } catch (e) {} buildPfHistory(true); } }))
   ])]);
 }
