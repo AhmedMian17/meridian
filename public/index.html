@@ -539,6 +539,35 @@ b.up, .num.up, span.up{color:var(--up)} b.down, .num.down, span.down{color:var(-
 .tgtfoot{margin-top:10px; font-size:13px}
 .tgtadd{margin-top:14px; padding-top:12px; border-top:1px solid var(--line)}
 .tgtprev{margin-top:8px; font-size:12px; color:var(--ink-2)}
+.bud{position:relative}
+.budplot{position:relative; margin-left:48px}
+.budplot .grid{position:absolute; left:0; right:0; height:1px; background:var(--line)}
+.budplot .ylab{position:absolute; left:-48px; width:42px; text-align:right; font-size:11px; color:var(--ink-3); transform:translateY(-50%); font-variant-numeric:tabular-nums}
+.budcols{position:absolute; inset:0; display:flex; align-items:flex-end; gap:6px}
+.budcol{flex:1; height:100%; display:flex; align-items:flex-end; justify-content:center; cursor:default; border-radius:3px; outline:none}
+.budcol:hover, .budcol:focus-visible{background:color-mix(in srgb, var(--ink) 5%, transparent)}
+.budcol .bars{display:flex; align-items:flex-end; gap:2px; width:72%; max-width:44px; height:100%}
+.budcol .bars i{flex:1; display:block; border-radius:4px 4px 0 0}
+.budcol.partial .bars i{opacity:.5}
+.bud .tip{position:absolute; top:4px; width:190px; background:var(--surface); border:1px solid var(--line-2); border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,.12); padding:8px 10px; font-size:12px; pointer-events:none; display:none; z-index:3}
+.bud .tip b{display:block; margin-bottom:4px; font-weight:600}
+.bud .tip .r{display:flex; align-items:center; gap:7px; color:var(--ink-2); padding:1px 0}
+.bud .tip .r span:nth-child(2){flex:1}
+.bud .tip .r span:last-child{color:var(--ink); font-variant-numeric:tabular-nums}
+.bud .tip .r.sum{border-top:1px solid var(--line); margin-top:4px; padding-top:4px}
+.budx{display:flex; gap:6px; margin-left:48px; margin-top:5px}
+.budx span{flex:1; text-align:center; font-size:11px; color:var(--ink-3); white-space:nowrap; overflow:hidden}
+.sankey{overflow-x:auto}
+.sksvg svg{display:block; margin:0 auto; max-width:100%; height:auto}
+.sankey .flow{opacity:.32; transition:opacity .12s ease}
+.sankey .flow:hover{opacity:.6}
+.sklab{font-size:12px; font-weight:600; fill:var(--ink)}
+.skval{font-size:11px; fill:var(--ink-3)}
+.skfoot{font-size:12.5px; text-align:center; margin-top:10px}
+.pfsum{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin-bottom:14px}
+.pfsum .k{font-size:12px; color:var(--ink-3)}
+.pfsum .v{font-family:"IBM Plex Sans Condensed",sans-serif; font-weight:600; font-size:20px; line-height:1.15}
+@media (max-width:720px){ .pfsum{grid-template-columns:repeat(2, minmax(0,1fr))} }
 .closedtgl{gap:6px; font-size:12.5px; color:var(--ink-2); cursor:pointer; white-space:nowrap}
 .closedtgl input{width:auto; margin:0}
 tr.closedrow > td{color:var(--ink-3)}
@@ -2603,6 +2632,133 @@ function netWorth() {
   return { total: assets + liabilities, assets: assets, liabilities: liabilities, parts: parts, portfolio: pt.value,
            brokerCash: ct.cash, margin: ct.margin };
 }
+/* ============================================================
+   Portfolio value over time, rebuilt from your lots and daily closes
+   ============================================================ */
+var PF_RANGES = [{ v: "1w", l: "1W" }, { v: "1m", l: "1M" }, { v: "3m", l: "3M" }, { v: "6m", l: "6M" }, { v: "ytd", l: "YTD" }, { v: "1y", l: "1Y" }, { v: "all", l: "All" }];
+var PfHist = { building: false, data: null, err: null };
+/** Changes to anything that affects past values (lots, sales, what's held and how it's priced). */
+function pfSig() {
+  var s = JSON.stringify([S.portfolio.lots.map(function (l) { return [l.id, l.positionId, l.date, l.qty, l.unitCost, l.fees]; }),
+    S.portfolio.disposals.map(function (d) { return [d.id, d.lotId, d.date, d.qty, d.unitPrice, d.fees]; }),
+    S.portfolio.positions.map(function (p) { return [p.id, p.kind, p.currency, p.source && p.source.type, p.source && p.source.feedSymbol, p.option && p.option.side, p.option && p.option.multiplier]; }),
+    S.settings.base]);
+  var hsh = 0; for (var i = 0; i < s.length; i++) hsh = (hsh * 31 + s.charCodeAt(i)) | 0;
+  return String(hsh);
+}
+/** Money in (buys, +) and out (sales, −) on each day, in your base currency. */
+function pfFlows() {
+  var f = {};
+  S.portfolio.lots.forEach(function (l) {
+    var p = pos(l.positionId); if (!p) return;
+    var r = fxRate(p.currency); if (r === null) return;
+    f[l.date] = (f[l.date] || 0) + (sideSign(p) * n(l.qty) * n(l.unitCost) * contractSize(p) + n(l.fees)) * r;
+  });
+  S.portfolio.disposals.forEach(function (d) {
+    var p = pos(d.positionId); if (!p) return;
+    var r = fxRate(p.currency); if (r === null) return;
+    f[d.date] = (f[d.date] || 0) - (sideSign(p) * n(d.qty) * n(d.unitPrice) * contractSize(p) - n(d.fees)) * r;
+  });
+  return f;
+}
+function pfFirstDate() {
+  var first = null;
+  S.portfolio.lots.forEach(function (l) { if (l.date && (!first || l.date < first)) first = l.date; });
+  return first;
+}
+async function buildPfHistory(force) {
+  var sig = pfSig();
+  if (!force && PfHist.data && PfHist.data.sig === sig && PfHist.data.day === today()) return;
+  if (!force && !PfHist.data) {
+    try { var c = JSON.parse(localStorage.getItem("meridian-ui:pfHist") || "null"); if (c && c.sig === sig && c.day === today()) { PfHist.data = c; return; } } catch (e) {}
+  }
+  if (PfHist.building) return;
+  var from = pfFirstDate();
+  if (!from) { PfHist.data = { sig: sig, day: today(), rows: [], live: false }; return; }
+  PfHist.building = true; setTimeout(softRender, 0);
+  try {
+    var hist = {}, live = !!proxyBase();
+    if (live) { try { hist = await priceHistory(addDays(from, -7)); } catch (e) { hist = {}; } }
+    var rows = [];
+    for (var d = addDays(from, -1); d < today(); d = addDays(d, 1)) {
+      var pv = portfolioOn(d, hist);
+      rows.push({ date: d, v: Math.round(pv.value * 100) / 100, est: !pv.exact || undefined });
+    }
+    // with no price history, past days fall back to today's prices; recorded snapshots are better than that
+    if (!Object.keys(hist).length) {
+      var snaps = {}; S.networth.snapshots.forEach(function (s) { if (!s.est) snaps[s.date] = s.portfolio; });
+      rows.forEach(function (r) { if (snaps[r.date] !== undefined) { r.v = snaps[r.date]; delete r.est; } });
+    }
+    PfHist.data = { sig: sig, day: today(), rows: rows, live: Object.keys(hist).length > 0 };
+    try { localStorage.setItem("meridian-ui:pfHist", JSON.stringify(PfHist.data)); } catch (e) {}
+    PfHist.err = null;
+  } catch (e) { PfHist.err = String(e && e.message || e); }
+  PfHist.building = false; setTimeout(softRender, 0);
+}
+function pfRangeStart(range, first) {
+  var t = today();
+  var m = { "1w": addDays(t, -7), "1m": shiftMonth(monthKey(t), -1) + t.slice(7), "3m": shiftMonth(monthKey(t), -3) + t.slice(7),
+    "6m": shiftMonth(monthKey(t), -6) + t.slice(7), ytd: addDays(t.slice(0, 4) + "-01-01", -1), "1y": (+t.slice(0, 4) - 1) + t.slice(4) }[range];
+  var day0 = addDays(first, -1);
+  if (range === "all" || !m || m < day0) return day0;
+  return m;
+}
+/**
+ * Time-weighted return over the rows: each day's growth, with money added or taken out that day
+ * treated as arriving at the start of the day, chained together. Buying more doesn't count as a gain.
+ */
+function pfTWR(rows, flows) {
+  var g = 1, used = 0;
+  for (var i = 1; i < rows.length; i++) {
+    var base = rows[i - 1].v + (flows[rows[i].date] || 0);
+    if (base > 0.005) { g *= rows[i].v / base; used++; }
+  }
+  return used ? (g - 1) * 100 : null;
+}
+function pfValuePanel() {
+  var first = pfFirstDate();
+  if (!first) return null;
+  buildPfHistory();
+  var range = tgtPref("pfRange", "3m");
+  var chips = segChips(PF_RANGES, range, function (v) { setTgtPref("pfRange", v); }, "Time frame");
+  var head = h("header", { class: "tgthdr" }, [h("h2", { text: "Value over time" }), chips]);
+  var data = PfHist.data;
+  if (!data || data.sig !== pfSig()) {
+    return h("section", { class: "panel" }, [head, h("div", { class: "body" }, h("p", { class: "muted", style: "font-size:13px;padding:30px 0;text-align:center" },
+      [h("span", { class: "spin", style: "margin-right:8px" }), "Rebuilding your history from daily prices" + ELLIPSIS]))]);
+  }
+  var start = pfRangeStart(range, first);
+  var all = data.rows.concat([{ date: today(), v: Math.round(portfolioTotals().value * 100) / 100 }]);
+  var rows = all.filter(function (r) { return r.date >= start; });
+  var flows = pfFlows();
+  var twr = pfTWR(rows, flows);
+  var v0 = rows.length ? rows[0].v : 0, v1 = rows.length ? rows[rows.length - 1].v : 0;
+  var added = 0; rows.slice(1).forEach(function (r) { added += flows[r.date] || 0; });
+  var gain = v1 - v0 - added;
+  var est = rows.filter(function (r) { return r.est; }).length;
+  var label = (PF_RANGES.filter(function (x) { return x.v === range; })[0] || {}).l;
+  var summary = h("div", { class: "pfsum" }, [
+    h("div", {}, [h("div", { class: "k", text: "Value" }), h("div", { class: "v", text: money(v1) })]),
+    h("div", {}, [h("div", { class: "k", text: "Time-weighted return, " + label }), h("div", { class: "v " + cls(twr || 0), text: twr === null ? "—" : (twr > 0 ? "+" : "") + twr.toFixed(2) + "%" })]),
+    h("div", {}, [h("div", { class: "k", text: "Gain, " + label }), h("div", { class: "v " + cls(gain), text: signed(gain) })]),
+    h("div", {}, [h("div", { class: "k", text: "Money in, " + label }), h("div", { class: "v", text: (added >= 0 ? "" : "−") + money(Math.abs(added)) }),
+      h("div", { class: "k", text: added > 0 ? "bought, net of sales" : added < 0 ? "sold, net of buys" : "no buys or sales" })])
+  ]);
+  var chartRows = rows.map(function (r) { return { date: r.date, total: r.v, est: r.est }; });
+  var notes = [];
+  notes.push("Time-weighted return leaves out the effect of buying and selling, so it shows how your holdings performed, not how much you put in.");
+  if (!data.live) notes.push("Daily price history isn't available here, so past days use recorded snapshots where there are any and today's prices otherwise.");
+  else if (est) notes.push(plural(est, "day") + " in this range used a last-known price for something without a daily close (crypto by address, or priced by hand).");
+  notes.push("Past values use today's exchange rates. Cash and margin aren't included.");
+  return h("section", { class: "panel" }, [head, h("div", { class: "body" }, [
+    summary,
+    timeChart(chartRows, { mode: "net", h: 220, label: "Portfolio value" }),
+    h("p", { class: "muted", style: "font-size:12px;margin-top:8px", text: notes.join(" ") }),
+    h("div", { style: "text-align:right;margin-top:-4px" }, h("button", { class: "linkbtn", style: "font-size:12px", text: PfHist.building ? "Refreshing" + ELLIPSIS : "Rebuild history",
+      onclick: function () { PfHist.data = null; try { localStorage.removeItem("meridian-ui:pfHist"); } catch (e) {} buildPfHistory(true); } }))
+  ])]);
+}
+
 /** Units held on a given date, from the lots bought by then minus what had been sold. */
 function openQtyOn(p, date) {
   var q = 0;
@@ -2622,7 +2778,7 @@ async function priceHistory(from) {
   });
   if (!wanted.length) return out;
   var days = Math.max(7, dayDiff(from, today()) + 5);
-  var range = days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 180 ? "6mo" : days <= 365 ? "1y" : "2y";
+  var range = days <= 30 ? "1mo" : days <= 90 ? "3mo" : days <= 180 ? "6mo" : days <= 365 ? "1y" : days <= 730 ? "2y" : days <= 1825 ? "5y" : "max";
   for (var i = 0; i < wanted.length; i++) {
     var p = wanted[i];
     try {
@@ -3620,6 +3776,7 @@ function viewPortfolio() {
     return out;
   }
 
+  add(out, pfValuePanel());
   add(out, tagFilterBar());
   add(out, allocationPanel());
   add(out, targetsPanel());
@@ -5258,6 +5415,225 @@ function editAccount(a) {
 
 var CAT_COLOURS = ["var(--brass)", "var(--steel)", "var(--violet)", "var(--clay)", "var(--up)", "var(--down)", "var(--ink-3)"];
 
+/* ============================================================
+   Budget charts: money in and out by period, and where it goes
+   ============================================================ */
+var BUD_PERIODS = [{ v: "week", l: "Weekly" }, { v: "fortnight", l: "Fortnightly" }, { v: "month", l: "Monthly" }, { v: "quarter", l: "Quarterly" }, { v: "year", l: "Yearly" }];
+var FORTNIGHT_ANCHOR = "2024-01-01";      // a Monday; fortnights run in two-week blocks from here
+/** The period a date falls in: {key, start, end, label}. Weeks start on Monday. */
+function budPeriod(kind, date) {
+  if (kind === "week") { var s = weekStart(date); return { key: s, start: s, end: addDays(s, 6), label: fmtDate(s) }; }
+  if (kind === "fortnight") {
+    var w = weekStart(date), k = Math.floor(dayDiff(FORTNIGHT_ANCHOR, w) / 14), s2 = addDays(FORTNIGHT_ANCHOR, k * 14);
+    return { key: s2, start: s2, end: addDays(s2, 13), label: fmtDate(s2) };
+  }
+  if (kind === "month") { var mk = monthKey(date); return { key: mk, start: mk + "-01", end: addDays(shiftMonth(mk, 1) + "-01", -1), label: MONTHS[+mk.slice(5) - 1].slice(0, 3) + (mk.slice(5) === "01" ? " " + mk.slice(2, 4) : "") }; }
+  if (kind === "quarter") {
+    var y = date.slice(0, 4), q = Math.floor((+date.slice(5, 7) - 1) / 3), sm = String(q * 3 + 1).padStart(2, "0");
+    return { key: y + "-Q" + (q + 1), start: y + "-" + sm + "-01", end: addDays(shiftMonth(y + "-" + sm, 3) + "-01", -1), label: "Q" + (q + 1) + " " + y.slice(2) };
+  }
+  var yy = date.slice(0, 4); return { key: yy, start: yy + "-01-01", end: yy + "-12-31", label: yy };
+}
+var BUD_COUNT = { week: 12, fortnight: 12, month: 12, quarter: 8, year: 5 };
+/** The last few periods, oldest first, each with its income and spending. */
+function budSeries(kind) {
+  var count = BUD_COUNT[kind], list = [], p = budPeriod(kind, today());
+  for (var i = 0; i < count; i++) { list.unshift(p); p = budPeriod(kind, addDays(p.start, -1)); }
+  var from = list[0].start, to = list[list.length - 1].end;
+  var byKey = {}; list.forEach(function (x) { x.income = 0; x.spend = 0; byKey[x.key] = x; });
+  for (var mk = monthKey(from); mk <= monthKey(to < today() ? to : today()); mk = shiftMonth(mk, 1)) {
+    txForMonth(mk).forEach(function (t) {
+      if (t.date < from || t.date > to) return;
+      var b = byKey[budPeriod(kind, t.date).key]; if (!b) return;
+      if (t.type === "income") b.income += n(t.amount); else b.spend += n(t.amount);
+    });
+  }
+  list.forEach(function (x) { x.partial = x.end >= today() && x.start <= today(); });
+  return list;
+}
+function budBarsPanel() {
+  var kind = tgtPref("budPeriod", "month"), show = tgtPref("budShow", "income");
+  var data = budSeries(kind);
+  var series = show === "both" ? [{ k: "income", l: "Money in", c: "var(--nw1)" }, { k: "spend", l: "Money out", c: "var(--nw2)" }]
+    : show === "spend" ? [{ k: "spend", l: "Money out", c: "var(--nw2)" }] : [{ k: "income", l: "Money in", c: "var(--nw1)" }];
+  var max = 0; data.forEach(function (d) { series.forEach(function (s2) { max = Math.max(max, d[s2.k]); }); });
+  var step = niceStep(max || 1), top = Math.ceil((max || 1) / step) * step;
+  var H = 200, padT = 8;
+  var Y = function (v) { return padT + (1 - v / top) * (H - padT); };
+  var wrap = h("div", { class: "bud nwviz" });
+  var plot = h("div", { class: "budplot", style: "height:" + H + "px" });
+  for (var tv = 0; tv <= top + step / 2; tv += step) {
+    plot.appendChild(h("i", { class: "grid", style: "top:" + Y(tv).toFixed(1) + "px" }));
+    plot.appendChild(h("span", { class: "ylab", style: "top:" + Y(tv).toFixed(1) + "px", text: moneyAxis(tv) }));
+  }
+  var cols = h("div", { class: "budcols" });
+  var tip = h("div", { class: "tip" });
+  data.forEach(function (d) {
+    var col = h("div", { class: "budcol" + (d.partial ? " partial" : ""), tabindex: "0" });
+    var bars = h("div", { class: "bars" });
+    series.forEach(function (s2) {
+      var v = d[s2.k], hgt = top ? (v / top) * (H - padT) : 0;
+      bars.appendChild(h("i", { style: "height:" + Math.max(v > 0 ? 2 : 0, hgt).toFixed(1) + "px;background:" + s2.c }));
+    });
+    col.appendChild(bars);
+    function showTip() {
+      tip.innerHTML = "";
+      tip.appendChild(h("b", { text: (kind === "week" || kind === "fortnight" ? fmtDate(d.start) + " – " + fmtDate(d.end) : d.label) + (d.partial ? " (so far)" : "") }));
+      [{ l: "Money in", v: d.income, c: "var(--nw1)" }, { l: "Money out", v: d.spend, c: "var(--nw2)" }].forEach(function (r) {
+        tip.appendChild(h("div", { class: "r" }, [h("span", { class: "sw", style: "background:" + r.c }), h("span", { text: r.l }), h("span", { text: money(r.v) })]));
+      });
+      tip.appendChild(h("div", { class: "r sum" }, [h("span"), h("span", { text: "Left over" }), h("span", { class: cls(d.income - d.spend), text: signed(d.income - d.spend) })]));
+      var box = plot.getBoundingClientRect(), cb = col.getBoundingClientRect();
+      var x = cb.left - box.left + cb.width / 2, tw = 190;
+      tip.style.left = Math.max(0, Math.min(box.width - tw, x - tw / 2)) + "px";
+      tip.style.display = "block";
+    }
+    col.addEventListener("mouseenter", showTip); col.addEventListener("focus", showTip);
+    col.addEventListener("mouseleave", function () { tip.style.display = "none"; }); col.addEventListener("blur", function () { tip.style.display = "none"; });
+    cols.appendChild(col);
+  });
+  plot.appendChild(cols); plot.appendChild(tip);
+  wrap.appendChild(plot);
+  wrap.appendChild(h("div", { class: "budx" }, data.map(function (d, i) {
+    var every = data.length > 8 && window.innerWidth < 720 ? 3 : 1;
+    return h("span", { text: i % every === 0 || i === data.length - 1 ? d.label : "" });
+  })));
+  var full = data.filter(function (d) { return !d.partial; });
+  var avgIn = full.length ? full.reduce(function (a, d) { return a + d.income; }, 0) / full.length : null;
+  var avgOut = full.length ? full.reduce(function (a, d) { return a + d.spend; }, 0) / full.length : null;
+  var per = { week: "week", fortnight: "fortnight", month: "month", quarter: "quarter", year: "year" }[kind];
+  var legend = h("div", { class: "nwlegend" }, series.map(function (s2) { return h("span", {}, [h("i", { class: "sw", style: "background:" + s2.c }), s2.l]); }).concat([
+    avgIn !== null ? h("span", { class: "muted", text: "Average per " + per + ": " + money(avgIn) + " in, " + money(avgOut) + " out (complete " + per + "s only)" }) : null]));
+  wrap.appendChild(legend);
+  return h("section", { class: "panel" }, [
+    h("header", { class: "tgthdr" }, [h("h2", { text: show === "spend" ? "Spending over time" : show === "both" ? "Money in and out" : "Income over time" }),
+      h("div", { class: "mrow", style: "gap:8px;flex-wrap:wrap;justify-content:flex-end" }, [
+        segChips([{ v: "income", l: "Income" }, { v: "spend", l: "Spending" }, { v: "both", l: "Both" }], show, function (v) { setTgtPref("budShow", v); }, "Show"),
+        segChips(BUD_PERIODS, kind, function (v) { setTgtPref("budPeriod", v); }, "Period")])]),
+    h("div", { class: "body" }, wrap)
+  ]);
+}
+
+/* ---------- where it comes from and goes ---------- */
+var MIX_RANGES = [{ v: "month", l: "This month" }, { v: "3m", l: "3 months" }, { v: "ytd", l: "This year" }, { v: "12m", l: "12 months" }];
+function budMix(range, mk) {
+  var end = range === "month" ? mk : monthKey(today());
+  var start = range === "month" ? mk : range === "3m" ? shiftMonth(end, -2) : range === "ytd" ? end.slice(0, 4) + "-01" : shiftMonth(end, -11);
+  var inc = {}, out = {}, totIn = 0, totOut = 0;
+  for (var m = start; m <= end; m = shiftMonth(m, 1)) {
+    txForMonth(m).forEach(function (t) {
+      var amt = n(t.amount); if (!amt) return;
+      var c = category(t.catId);
+      var key = c ? c.id : (t.type === "income" ? "_inc" : "_out");
+      var bag = t.type === "income" ? inc : out;
+      var x = bag[key] || (bag[key] = { key: key, label: c ? c.name : (t.type === "income" ? "Other income" : "Uncategorised"), colour: c ? (c.colour || "var(--ink-3)") : "var(--ink-3)", v: 0 });
+      x.v += amt;
+      if (t.type === "income") totIn += amt; else totOut += amt;
+    });
+  }
+  var sortV = function (o) { return Object.keys(o).map(function (k) { return o[k]; }).sort(function (a, b) { return b.v - a.v; }); };
+  return { inc: sortV(inc), out: sortV(out), totIn: totIn, totOut: totOut, start: start, end: end };
+}
+function mixRing(list, total, title, centre) {
+  var R = 70, W = 30, C = 2 * Math.PI * R, acc = 0;
+  var o = '<svg viewBox="0 0 200 200" role="img" aria-label="' + esc(title) + '"><circle cx="100" cy="100" r="' + R + '" fill="none" stroke="var(--sunken)" stroke-width="' + W + '"/>';
+  list.forEach(function (x) {
+    var len = total ? (x.v / total) * C : 0, gap = list.length > 1 && len > 3 ? 1.6 : 0;
+    o += '<circle class="slice" data-key="' + esc(x.key) + '" cx="100" cy="100" r="' + R + '" fill="none" stroke="' + x.colour + '" stroke-width="' + W +
+      '" stroke-dasharray="' + Math.max(0.01, len - gap).toFixed(3) + " " + (C - len + gap).toFixed(3) + '" stroke-dashoffset="' + (-acc).toFixed(3) +
+      '" transform="rotate(-90 100 100)"><title>' + esc(x.label) + " · " + allocPct((x.v / total) * 100) + " · " + esc(money(x.v)) + "</title></circle>";
+    acc += len;
+  });
+  o += '<text x="100" y="99" text-anchor="middle" class="donut-total">' + esc(moneyShort(total)) + '</text><text x="100" y="118" text-anchor="middle" class="donut-label">' + esc(centre) + "</text></svg>";
+  var col = h("div", { class: "bdpie" });
+  add(col, h("div", { class: "trtitle", text: title }));
+  add(col, svgEl(o, "bdring"));
+  add(col, h("div", { class: "allocrows" }, list.map(function (x) {
+    return h("div", { class: "allocrow", "data-key": x.key }, [h("i", { class: "sw", style: "background:" + x.colour }), h("span", { class: "lbl" }, [h("b", { text: x.label })]),
+      h("span", { class: "pc", text: allocPct(total ? (x.v / total) * 100 : 0) }), h("span", { class: "vl", text: money(x.v) })]);
+  })));
+  col.querySelectorAll("[data-key]").forEach(function (el) {
+    el.addEventListener("mouseenter", function () { col.setAttribute("data-hover", "1"); col.querySelectorAll("[data-key]").forEach(function (o2) { o2.classList.toggle("on", o2.getAttribute("data-key") === el.getAttribute("data-key")); }); });
+    el.addEventListener("mouseleave", function () { col.removeAttribute("data-hover"); col.querySelectorAll(".on").forEach(function (o2) { o2.classList.remove("on"); }); });
+  });
+  return col;
+}
+/**
+ * A Sankey diagram: income sources on the left flow into the month's money, which flows out to
+ * spending categories and whatever was saved. If spending was more than income, the gap comes in
+ * from the left as "From savings".
+ */
+function budSankey(m) {
+  var left = m.inc.slice(), right = m.out.slice();
+  if (m.totIn > m.totOut) right.push({ key: "_saved", label: "Saved", colour: "var(--up)", v: m.totIn - m.totOut, saved: true });
+  if (m.totOut > m.totIn) left.push({ key: "_draw", label: "From savings", colour: "var(--down)", v: m.totOut - m.totIn, draw: true });
+  var total = Math.max(m.totIn, m.totOut);
+  var host = qs("#view"), W = Math.max(340, Math.min(980, ((host && host.clientWidth) || 900) - 40));
+  var narrow = W < 600, labW = narrow ? 96 : 150, nodeW = 10, gap = 8;
+  var nRows = Math.max(left.length, right.length, 1);
+  var H = Math.max(220, Math.min(560, nRows * (narrow ? 34 : 38), Math.max(left.length, right.length) * 30 + 20));
+  H = Math.max(H, Math.max(left.length, right.length) * 30 + 10);
+  var usable = function (count) { return H - gap * Math.max(0, count - 1); };
+  var scaleL = usable(left.length) / total, scaleR = usable(right.length) / total, scaleM = H / total;
+  var xL = labW, xM = W / 2 - nodeW / 2, xR = W - labW - nodeW;
+  var o = '<svg viewBox="0 0 ' + W + " " + (H + 4) + '" width="' + W + '" height="' + (H + 4) + '" role="img" aria-label="Where your money came from and went">';
+  var yl = 0, ym = 0, yr = 0, flows = "", nodes = "", labels = "", labL = [], labR = [];
+  function ribbon(x0, y0, h0, x1, y1, h1, colour, title) {
+    var cx = (x0 + x1) / 2;
+    return '<path class="flow" d="M' + x0 + "," + y0 + " C" + cx + "," + y0 + " " + cx + "," + y1 + " " + x1 + "," + y1 + " L" + x1 + "," + (y1 + h1) + " C" + cx + "," + (y1 + h1) + " " + cx + "," + (y0 + h0) + " " + x0 + "," + (y0 + h0) + ' Z" fill="' + colour + '"><title>' + esc(title) + "</title></path>";
+  }
+  function lab(x, y, anchor, name, v) {
+    return '<text x="' + x + '" y="' + (y - 1) + '" text-anchor="' + anchor + '" class="sklab">' + esc(name.length > (narrow ? 13 : 22) ? name.slice(0, narrow ? 12 : 21) + "…" : name) +
+      '</text><text x="' + x + '" y="' + (y + 12) + '" text-anchor="' + anchor + '" class="skval">' + esc(money(v)) + " · " + esc(allocPct((v / total) * 100)) + "</text>";
+  }
+  left.forEach(function (x) {
+    var hL = Math.max(1.5, x.v * scaleL), hM = x.v * scaleM;
+    flows += ribbon(xL + nodeW, yl, hL, xM, ym, hM, x.colour, x.label + " → " + money(x.v));
+    nodes += '<rect x="' + xL + '" y="' + yl + '" width="' + nodeW + '" height="' + hL + '" rx="2" fill="' + x.colour + '"/>';
+    labL.push({ y: yl + hL / 2, x: x });
+    yl += hL + gap; ym += hM;
+  });
+  nodes += '<rect x="' + xM + '" y="0" width="' + nodeW + '" height="' + H + '" rx="2" fill="var(--ink-2)"/>';
+  ym = 0;
+  right.forEach(function (x) {
+    var hR = Math.max(1.5, x.v * scaleR), hM = x.v * scaleM;
+    flows += ribbon(xM + nodeW, ym, hM, xR, yr, hR, x.colour, money(x.v) + " → " + x.label);
+    nodes += '<rect x="' + xR + '" y="' + yr + '" width="' + nodeW + '" height="' + hR + '" rx="2" fill="' + x.colour + '"/>';
+    labR.push({ y: yr + hR / 2, x: x });
+    yr += hR + gap; ym += hM;
+  });
+  // labels need about 28px each: nudge them apart (down, then back up if they run off the bottom)
+  function spread(list) {
+    var minGap = 28;
+    for (var i = 1; i < list.length; i++) if (list[i].y - list[i - 1].y < minGap) list[i].y = list[i - 1].y + minGap;
+    var over = list.length ? list[list.length - 1].y - (H - 8) : 0;
+    if (over > 0) for (var j = list.length - 1; j >= 0; j--) { list[j].y -= over; if (j > 0 && list[j].y - list[j - 1].y >= minGap) break; over = Math.max(0, list[j - 1] ? list[j - 1].y + minGap - list[j].y : 0); if (j > 0) list[j - 1].y = Math.min(list[j - 1].y, list[j].y - minGap); }
+    if (list.length && list[0].y < 10) { var up = 10 - list[0].y; list.forEach(function (l) { l.y += up; }); }
+  }
+  spread(labL); spread(labR);
+  labL.forEach(function (l) { labels += lab(xL - 8, l.y, "end", l.x.label, l.x.v); });
+  labR.forEach(function (l) { labels += lab(xR + nodeW + 8, l.y, "start", l.x.label, l.x.v); });
+  o += flows + nodes + labels + "</svg>";
+  return h("div", { class: "sankey" }, [svgEl(o, "sksvg"),
+    h("div", { class: "skfoot muted", text: money(m.totIn) + " in · " + money(m.totOut) + " out · " +
+      (m.totIn >= m.totOut ? money(m.totIn - m.totOut) + " saved (" + allocPct(m.totIn ? ((m.totIn - m.totOut) / m.totIn) * 100 : 0) + ")" : money(m.totOut - m.totIn) + " more out than in") })]);
+}
+function budMixPanel(mk) {
+  var range = tgtPref("mixRange", "month"), view = tgtPref("mixView", "flow");
+  var m = budMix(range, mk);
+  var head = h("header", { class: "tgthdr" }, [h("h2", { text: "Where it comes from and goes" }),
+    h("div", { class: "mrow", style: "gap:8px;flex-wrap:wrap;justify-content:flex-end" }, [
+      segChips(MIX_RANGES.map(function (r) { return r.v === "month" ? { v: "month", l: MONTHS[+mk.slice(5) - 1].slice(0, 3) + " " + mk.slice(0, 4) } : r; }), range, function (v) { setTgtPref("mixRange", v); }, "Period"),
+      segChips([{ v: "flow", l: "Flow" }, { v: "pie", l: "Pie" }], view, function (v) { setTgtPref("mixView", v); }, "View")])]);
+  if (!m.totIn && !m.totOut) return h("section", { class: "panel" }, [head, emptyState("Nothing recorded for this period", "Add income and spending and they'll show here.")]);
+  var body = view === "pie"
+    ? h("div", { class: "bdgrid" }, [
+        m.inc.length ? mixRing(m.inc, m.totIn, "Income by source", "in") : h("p", { class: "muted", text: "No income recorded." }),
+        m.out.length ? mixRing(m.out, m.totOut, "Spending by category", "out") : h("p", { class: "muted", text: "No spending recorded." })])
+    : budSankey(m);
+  return h("section", { class: "panel" }, [head, h("div", { class: "body" }, body)]);
+}
+
 function viewBudget() {
   var out = frag([]);
   var mk = UI.txMonth || monthKey(today());
@@ -5291,6 +5667,9 @@ function viewBudget() {
       h("div", {}, [h("div", { class: "k", text: "Saved" }), h("div", { class: "v", text: rate === null ? "—" : rate + "%" })])
     ])
   ]));
+
+  add(out, budBarsPanel());
+  add(out, budMixPanel(mk));
 
   /* envelopes */
   var cats = S.budget.categories.filter(function (c) { return c.group !== "income"; });
