@@ -2636,14 +2636,27 @@ function netWorth() {
 /* ============================================================
    Portfolio value over time, rebuilt from your lots and daily closes
    ============================================================ */
-var PF_RANGES = [{ v: "1w", l: "1W" }, { v: "1m", l: "1M" }, { v: "3m", l: "3M" }, { v: "6m", l: "6M" }, { v: "ytd", l: "YTD" }, { v: "1y", l: "1Y" }, { v: "all", l: "All" }];
+var PF_RANGES = [{ v: "1w", l: "1W" }, { v: "1m", l: "1M" }, { v: "3m", l: "3M" }, { v: "6m", l: "6M" }, { v: "ytd", l: "YTD" }, { v: "1y", l: "1Y" }, { v: "all", l: "Inception" }];
+/**
+ * Where the chart begins. By default the first day you used the board (its first snapshot); you can
+ * set another date. Holdings bought before it count as already held that day, so rough purchase
+ * dates before inception don't matter. Lot dates themselves are untouched (they still decide CGT).
+ */
+function pfInception() {
+  if (S.settings.inception === "lots") return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(S.settings.inception || "")) return S.settings.inception;
+  var first = null;
+  S.networth.snapshots.forEach(function (s) { if (!first || s.date < first) first = s.date; });
+  // a board first opened today has no history of its own yet: start from the lots until it does
+  return first && first < today() ? first : null;
+}
 var PfHist = { building: false, data: null, err: null };
 /** Changes to anything that affects past values (lots, sales, what's held and how it's priced). */
 function pfSig() {
   var s = JSON.stringify([S.portfolio.lots.map(function (l) { return [l.id, l.positionId, l.date, l.qty, l.unitCost, l.fees]; }),
     S.portfolio.disposals.map(function (d) { return [d.id, d.lotId, d.date, d.qty, d.unitPrice, d.fees]; }),
     S.portfolio.positions.map(function (p) { return [p.id, p.kind, p.currency, p.source && p.source.type, p.source && p.source.feedSymbol, p.option && p.option.side, p.option && p.option.multiplier]; }),
-    S.settings.base]);
+    S.settings.base, pfInception()]);
   var hsh = 0; for (var i = 0; i < s.length; i++) hsh = (hsh * 31 + s.charCodeAt(i)) | 0;
   return String(hsh);
 }
@@ -2674,14 +2687,16 @@ async function buildPfHistory(force) {
     try { var c = JSON.parse(localStorage.getItem("meridian-ui:pfHist") || "null"); if (c && c.sig === sig && c.day === today()) { PfHist.data = c; return; } } catch (e) {}
   }
   if (PfHist.building) return;
-  var from = pfFirstDate();
-  if (!from) { PfHist.data = { sig: sig, day: today(), rows: [], live: false }; return; }
+  var first = pfFirstDate();
+  if (!first) { PfHist.data = { sig: sig, day: today(), rows: [], live: false }; return; }
+  var inc = pfInception();
+  var from = inc && inc > first ? inc : addDays(first, 1);     // rows begin the day before "from"
   PfHist.building = true; setTimeout(softRender, 0);
   try {
     var hist = {}, live = !!proxyBase();
     if (live) { try { hist = await priceHistory(addDays(from, -7)); } catch (e) { hist = {}; } }
     var rows = [];
-    for (var d = addDays(from, -1); d < today(); d = addDays(d, 1)) {
+    for (var d = inc && inc > first ? inc : addDays(first, -1); d < today(); d = addDays(d, 1)) {
       var pv = portfolioOn(d, hist);
       rows.push({ date: d, v: Math.round(pv.value * 100) / 100, est: !pv.exact || undefined });
     }
@@ -2690,17 +2705,17 @@ async function buildPfHistory(force) {
       var snaps = {}; S.networth.snapshots.forEach(function (s) { if (!s.est) snaps[s.date] = s.portfolio; });
       rows.forEach(function (r) { if (snaps[r.date] !== undefined) { r.v = snaps[r.date]; delete r.est; } });
     }
-    PfHist.data = { sig: sig, day: today(), rows: rows, live: Object.keys(hist).length > 0 };
+    PfHist.data = { sig: sig, day: today(), rows: rows, live: Object.keys(hist).length > 0, start: rows.length ? rows[0].date : null };
     try { localStorage.setItem("meridian-ui:pfHist", JSON.stringify(PfHist.data)); } catch (e) {}
     PfHist.err = null;
   } catch (e) { PfHist.err = String(e && e.message || e); }
   PfHist.building = false; setTimeout(softRender, 0);
 }
-function pfRangeStart(range, first) {
+function pfRangeStart(range, first, startRow) {
   var t = today();
   var m = { "1w": addDays(t, -7), "1m": shiftMonth(monthKey(t), -1) + t.slice(7), "3m": shiftMonth(monthKey(t), -3) + t.slice(7),
     "6m": shiftMonth(monthKey(t), -6) + t.slice(7), ytd: addDays(t.slice(0, 4) + "-01-01", -1), "1y": (+t.slice(0, 4) - 1) + t.slice(4) }[range];
-  var day0 = addDays(first, -1);
+  var day0 = startRow || addDays(first, -1);
   if (range === "all" || !m || m < day0) return day0;
   return m;
 }
@@ -2716,6 +2731,28 @@ function pfTWR(rows, flows) {
   }
   return used ? (g - 1) * 100 : null;
 }
+function editInception() {
+  var cur = pfInception(), useLots = S.settings.inception === "lots";
+  var firstSnap = null; S.networth.snapshots.forEach(function (s) { if (!firstSnap || s.date < firstSnap) firstSnap = s.date; });
+  var dateIn = inp({ type: "date", value: cur || firstSnap || today(), max: today() });
+  var mode = useLots ? "lots" : "date";
+  var wrap = h("div");
+  function build() {
+    wrap.innerHTML = "";
+    add(wrap, [
+      h("p", { class: "muted", style: "font-size:12.5px;margin-bottom:10px", text: "The chart and its returns start here. Holdings bought earlier count as already held on this day, so their purchase dates don't affect it. Your lots and CGT dates aren't changed." }),
+      field("Start from", segmented([{ v: "date", l: "Inception date" }, { v: "lots", l: "First lot's date" }], mode, function (v) { mode = v; build(); })),
+      mode === "date" ? field("Inception", dateIn, firstSnap ? "You started using the board on " + fmtDate(firstSnap, true) + "." : null) : null
+    ]);
+  }
+  build();
+  openDialog({ title: "Portfolio inception", body: wrap, actions: [{ label: "Save", primary: true, onClick: function () {
+    if (mode === "lots") S.settings.inception = "lots";
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(dateIn.value)) S.settings.inception = dateIn.value === firstSnap ? undefined : dateIn.value;
+    if (S.settings.inception === undefined) delete S.settings.inception;
+    save("settings"); render();
+  } }] });
+}
 function pfValuePanel() {
   var first = pfFirstDate();
   if (!first) return null;
@@ -2730,7 +2767,8 @@ function pfValuePanel() {
       [h("span", { class: "spin", style: "margin-right:8px" }), "Rebuilding your history from daily prices" + ELLIPSIS]))]);
   }
   var stale = data.sig !== pfSig();     // after an edit: keep showing the last chart while it updates
-  var start = pfRangeStart(range, first);
+  var start = pfRangeStart(range, first, data.start);
+  var inc = pfInception(), clamped = range !== "all" && data.start && start === data.start;
   var all = data.rows.concat([{ date: today(), v: Math.round(portfolioTotals().value * 100) / 100 }]);
   var rows = all.filter(function (r) { return r.date >= start; });
   var flows = pfFlows();
@@ -2739,9 +2777,10 @@ function pfValuePanel() {
   var added = 0; rows.slice(1).forEach(function (r) { added += flows[r.date] || 0; });
   var gain = v1 - v0 - added;
   var est = rows.filter(function (r) { return r.est; }).length;
-  var label = (PF_RANGES.filter(function (x) { return x.v === range; })[0] || {}).l;
+  var label = range === "all" ? "since inception" : (PF_RANGES.filter(function (x) { return x.v === range; })[0] || {}).l + (clamped ? " (since inception)" : "");
   var summary = h("div", { class: "pfsum" }, [
-    h("div", {}, [h("div", { class: "k", text: "Value" }), h("div", { class: "v", text: money(v1) })]),
+    h("div", {}, [h("div", { class: "k", text: "Value" }), h("div", { class: "v", text: money(v1) }),
+      h("div", { class: "k" }, [inc ? "Inception " + fmtDate(inc) + " \u00b7 " : "From your first lot \u00b7 ", h("button", { class: "linkbtn", style: "font-size:12px", text: "change", onclick: editInception })])]),
     h("div", {}, [h("div", { class: "k", text: "Time-weighted return, " + label }), h("div", { class: "v " + cls(twr || 0), text: twr === null ? "—" : (twr > 0 ? "+" : "") + twr.toFixed(2) + "%" })]),
     h("div", {}, [h("div", { class: "k", text: "Gain, " + label }), h("div", { class: "v " + cls(gain), text: signed(gain) })]),
     h("div", {}, [h("div", { class: "k", text: "Money in, " + label }), h("div", { class: "v", text: (added >= 0 ? "" : "−") + money(Math.abs(added)) }),
@@ -2752,6 +2791,7 @@ function pfValuePanel() {
   notes.push("Time-weighted return leaves out the effect of buying and selling, so it shows how your holdings performed, not how much you put in.");
   if (!data.live) notes.push("Daily price history isn't available here, so past days use recorded snapshots where there are any and today's prices otherwise.");
   else if (est) notes.push(plural(est, "day") + " in this range used a last-known price for something without a daily close (crypto by address, or priced by hand).");
+  if (inc) notes.push("Holdings bought before inception (" + fmtDate(inc) + ") count as already held that day, whatever their purchase dates.");
   notes.push("Past values use today's exchange rates. Cash and margin aren't included.");
   return h("section", { class: "panel" }, [head, h("div", { class: "body" }, [
     summary,
