@@ -3768,7 +3768,47 @@ function kindLabel(k) { for (var i = 0; i < KINDS.length; i++) if (KINDS[i].v ==
 function fyOf(date) { var d = parseISO(date); return d.getMonth() >= 6 ? d.getFullYear() + 1 : d.getFullYear(); }
 function fyLabel(y) { return "FY" + String(y).slice(2); }
 
+/** Same holding, as far as the portfolio is concerned: VAS = VAS.AX, BTC = BTC-USD. */
+function symKey(x) { return String(x || "").toUpperCase().replace(/\s+/g, "").replace(/^\//, "").replace(/\.AX$/, "").replace(/-USD$/, ""); }
+function sameHolding(a, b) {
+  if (a.id === b.id || a.kind === "option" || b.kind === "option") return false;
+  var ka = [symKey(a.symbol), symKey(a.source && a.source.feedSymbol)].filter(Boolean);
+  var kb = [symKey(b.symbol), symKey(b.source && b.source.feedSymbol)].filter(Boolean);
+  if (!ka.some(function (k) { return kb.indexOf(k) >= 0; })) return false;
+  var ca = a.currency || S.settings.base, cb = b.currency || S.settings.base;
+  return ca === cb || a.kind === "crypto" || b.kind === "crypto";
+}
+/** A planned holding (never bought) that this new or held position is the real version of. */
+function plannedTwin(p) {
+  return S.portfolio.positions.filter(function (q) { return q.planned && !lotsOf(q.id).length && sameHolding(p, q); })[0] || null;
+}
+/**
+ * Tidy up a planned holding that was added again as a new position before this was caught: keep
+ * the one you hold, give it the plan's target (unless it has its own) and tags, drop the plan.
+ */
+function mergePlannedTwins() {
+  var drop = {}, merged = [];
+  S.portfolio.positions.forEach(function (p) {
+    if (p.planned && !lotsOf(p.id).length) return;
+    S.portfolio.positions.forEach(function (q) {
+      if (drop[q.id] || !q.planned || lotsOf(q.id).length || !sameHolding(p, q)) return;
+      if (!hasTarget(p) && hasTarget(q)) p.target = q.target;
+      var tg = cleanTags(tagsOf(p).concat(tagsOf(q)).join(","));
+      if (tg.length) p.tags = tg;
+      drop[q.id] = 1; merged.push(p.symbol || p.name);
+    });
+  });
+  if (!merged.length) return false;
+  S.portfolio.positions = S.portfolio.positions.filter(function (q) { return !drop[q.id]; });
+  save("portfolio");
+  toast("Merged " + merged.join(", ") + " with " + (merged.length === 1 ? "its" : "their") + " planned " + (merged.length === 1 ? "entry" : "entries") + ".");
+  return true;
+}
 function viewPortfolio() {
+  if (!UI.mergingTwins && S.portfolio.positions.some(function (q) { return q.planned && !lotsOf(q.id).length; })) {
+    UI.mergingTwins = true;
+    setTimeout(function () { try { if (mergePlannedTwins()) render(); } finally { UI.mergingTwins = false; } }, 0);
+  }
   var out = frag([]);
   var t = portfolioTotals(), ct = cashTotals();
 
@@ -4665,7 +4705,17 @@ function editPosition(p) {
         if (draft.tagText !== undefined) { draft.tags = cleanTags(draft.tagText); delete draft.tagText; }
         if (!draft.tags || !draft.tags.length) delete draft.tags;
         if (!draft.currency) draft.currency = S.settings.base;
-        if (isNew) S.portfolio.positions.push(draft);
+        var twin = isNew ? plannedTwin(draft) : null;
+        if (twin) {
+          // you planned this one: take its place, so its target and tags carry over and there's only one
+          draft.id = twin.id;
+          if (!hasTarget(draft) && hasTarget(twin)) draft.target = twin.target;
+          var tg = cleanTags(tagsOf(twin).concat(tagsOf(draft)).join(","));
+          if (tg.length) draft.tags = tg;
+          delete draft.planned;
+          for (var j = 0; j < S.portfolio.positions.length; j++) if (S.portfolio.positions[j].id === twin.id) S.portfolio.positions[j] = draft;
+          toast("Matched your planned " + (draft.symbol || twin.symbol) + (hasTarget(draft) ? ", target " + fmtPct(draft.target) + " kept." : "."));
+        } else if (isNew) S.portfolio.positions.push(draft);
         else {
           for (var i = 0; i < S.portfolio.positions.length; i++)
             if (S.portfolio.positions[i].id === draft.id) S.portfolio.positions[i] = draft;
